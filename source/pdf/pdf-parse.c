@@ -3,40 +3,57 @@
 
 #include <string.h>
 
-fz_rect *
-pdf_to_rect(fz_context *ctx, pdf_obj *array, fz_rect *r)
+fz_rect
+pdf_to_rect(fz_context *ctx, pdf_obj *array)
 {
 	if (!pdf_is_array(ctx, array))
-		*r = fz_empty_rect;
+		return fz_empty_rect;
 	else
 	{
 		float a = pdf_array_get_real(ctx, array, 0);
 		float b = pdf_array_get_real(ctx, array, 1);
 		float c = pdf_array_get_real(ctx, array, 2);
 		float d = pdf_array_get_real(ctx, array, 3);
-		r->x0 = fz_min(a, c);
-		r->y0 = fz_min(b, d);
-		r->x1 = fz_max(a, c);
-		r->y1 = fz_max(b, d);
+		fz_rect r;
+		r.x0 = fz_min(a, c);
+		r.y0 = fz_min(b, d);
+		r.x1 = fz_max(a, c);
+		r.y1 = fz_max(b, d);
+		return r;
 	}
-	return r;
 }
 
-fz_matrix *
-pdf_to_matrix(fz_context *ctx, pdf_obj *array, fz_matrix *m)
+fz_quad
+pdf_to_quad(fz_context *ctx, pdf_obj *array, int offset)
+{
+	fz_quad q;
+	q.ul.x = pdf_array_get_real(ctx, array, offset+0);
+	q.ul.y = pdf_array_get_real(ctx, array, offset+1);
+	q.ur.x = pdf_array_get_real(ctx, array, offset+2);
+	q.ur.y = pdf_array_get_real(ctx, array, offset+3);
+	q.ll.x = pdf_array_get_real(ctx, array, offset+4);
+	q.ll.y = pdf_array_get_real(ctx, array, offset+5);
+	q.lr.x = pdf_array_get_real(ctx, array, offset+6);
+	q.lr.y = pdf_array_get_real(ctx, array, offset+7);
+	return q;
+}
+
+fz_matrix
+pdf_to_matrix(fz_context *ctx, pdf_obj *array)
 {
 	if (!pdf_is_array(ctx, array))
-		*m = fz_identity;
+		return fz_identity;
 	else
 	{
-		m->a = pdf_array_get_real(ctx, array, 0);
-		m->b = pdf_array_get_real(ctx, array, 1);
-		m->c = pdf_array_get_real(ctx, array, 2);
-		m->d = pdf_array_get_real(ctx, array, 3);
-		m->e = pdf_array_get_real(ctx, array, 4);
-		m->f = pdf_array_get_real(ctx, array, 5);
+		fz_matrix m;
+		m.a = pdf_array_get_real(ctx, array, 0);
+		m.b = pdf_array_get_real(ctx, array, 1);
+		m.c = pdf_array_get_real(ctx, array, 2);
+		m.d = pdf_array_get_real(ctx, array, 3);
+		m.e = pdf_array_get_real(ctx, array, 4);
+		m.f = pdf_array_get_real(ctx, array, 5);
+		return m;
 	}
-	return m;
 }
 
 static int
@@ -56,6 +73,36 @@ rune_from_utf16be(int *out, const unsigned char *s, const unsigned char *end)
 	}
 	*out = FZ_REPLACEMENT_CHARACTER;
 	return 1;
+}
+
+static int
+rune_from_utf16le(int *out, const unsigned char *s, const unsigned char *end)
+{
+	if (s + 2 <= end)
+	{
+		int a = s[1] << 8 | s[0];
+		if (a >= 0xD800 && a <= 0xDFFF && s + 4 <= end)
+		{
+			int b = s[3] << 8 | s[2];
+			*out = ((a - 0xD800) << 10) + (b - 0xDC00) + 0x10000;
+			return 4;
+		}
+		*out = a;
+		return 2;
+	}
+	*out = FZ_REPLACEMENT_CHARACTER;
+	return 1;
+}
+
+static size_t
+skip_language_code_utf16le(const unsigned char *s, size_t n, size_t i)
+{
+	/* skip language escape codes */
+	if (i + 6 <= n && s[i+1] == 0 && s[i+0] == 27 && s[i+5] == 0 && s[i+4] == 27)
+		return 6;
+	else if (i + 8 <= n && s[i+1] == 0 && s[i+0] == 27 && s[i+7] == 0 && s[i+6] == 27)
+		return 8;
+	return 0;
 }
 
 static size_t
@@ -80,9 +127,11 @@ skip_language_code_utf8(const unsigned char *s, size_t n, size_t i)
 	return 0;
 }
 
+/* Convert Unicode/PdfDocEncoding string into utf-8 */
 char *
-pdf_to_utf8_imp(fz_context *ctx, const unsigned char *srcptr, size_t srclen)
+pdf_new_utf8_from_pdf_string(fz_context *ctx, const char *ssrcptr, size_t srclen)
 {
+	const unsigned char *srcptr = (const unsigned char*)ssrcptr;
 	char *dstptr, *dst;
 	size_t dstlen = 0;
 	int ucs;
@@ -104,7 +153,7 @@ pdf_to_utf8_imp(fz_context *ctx, const unsigned char *srcptr, size_t srclen)
 			}
 		}
 
-		dstptr = dst = fz_malloc(ctx, dstlen + 1);
+		dstptr = dst = Memento_label(fz_malloc(ctx, dstlen + 1), "utf8_from_utf16be");
 
 		i = 2;
 		while (i + 2 <= srclen)
@@ -115,6 +164,38 @@ pdf_to_utf8_imp(fz_context *ctx, const unsigned char *srcptr, size_t srclen)
 			else
 			{
 				i += rune_from_utf16be(&ucs, srcptr + i, srcptr + srclen);
+				dstptr += fz_runetochar(dstptr, ucs);
+			}
+		}
+	}
+
+	/* UTF-16LE */
+	else if (srclen >= 2 && srcptr[0] == 255 && srcptr[1] == 254)
+	{
+		i = 2;
+		while (i + 2 <= srclen)
+		{
+			n = skip_language_code_utf16le(srcptr, srclen, i);
+			if (n)
+				i += n;
+			else
+			{
+				i += rune_from_utf16le(&ucs, srcptr + i, srcptr + srclen);
+				dstlen += fz_runelen(ucs);
+			}
+		}
+
+		dstptr = dst = Memento_label(fz_malloc(ctx, dstlen + 1), "utf8_from_utf16le");
+
+		i = 2;
+		while (i + 2 <= srclen)
+		{
+			n = skip_language_code_utf16le(srcptr, srclen, i);
+			if (n)
+				i += n;
+			else
+			{
+				i += rune_from_utf16le(&ucs, srcptr + i, srcptr + srclen);
 				dstptr += fz_runetochar(dstptr, ucs);
 			}
 		}
@@ -136,7 +217,7 @@ pdf_to_utf8_imp(fz_context *ctx, const unsigned char *srcptr, size_t srclen)
 			}
 		}
 
-		dstptr = dst = fz_malloc(ctx, dstlen + 1);
+		dstptr = dst = Memento_label(fz_malloc(ctx, dstlen + 1), "utf8_from_utf8");
 
 		i = 3;
 		while (i < srclen)
@@ -153,13 +234,13 @@ pdf_to_utf8_imp(fz_context *ctx, const unsigned char *srcptr, size_t srclen)
 	else
 	{
 		for (i = 0; i < srclen; i++)
-			dstlen += fz_runelen(pdf_doc_encoding[srcptr[i]]);
+			dstlen += fz_runelen(fz_unicode_from_pdf_doc_encoding[srcptr[i]]);
 
-		dstptr = dst = fz_malloc(ctx, dstlen + 1);
+		dstptr = dst = Memento_label(fz_malloc(ctx, dstlen + 1), "utf8_from_pdfdocenc");
 
 		for (i = 0; i < srclen; i++)
 		{
-			ucs = pdf_doc_encoding[srcptr[i]];
+			ucs = fz_unicode_from_pdf_doc_encoding[srcptr[i]];
 			dstptr += fz_runetochar(dstptr, ucs);
 		}
 	}
@@ -168,30 +249,29 @@ pdf_to_utf8_imp(fz_context *ctx, const unsigned char *srcptr, size_t srclen)
 	return dst;
 }
 
-/* Convert Unicode/PdfDocEncoding string into utf-8 */
+/* Convert text string object to UTF-8 */
 char *
-pdf_to_utf8(fz_context *ctx, pdf_obj *src)
+pdf_new_utf8_from_pdf_string_obj(fz_context *ctx, pdf_obj *src)
 {
-	unsigned char *srcptr;
+	const char *srcptr;
 	size_t srclen;
-	srcptr = (unsigned char *) pdf_to_str_buf(ctx, src);
-	srclen = pdf_to_str_len(ctx, src);
-	return pdf_to_utf8_imp(ctx, srcptr, srclen);
+	srcptr = pdf_to_string(ctx, src, &srclen);
+	return pdf_new_utf8_from_pdf_string(ctx, srcptr, srclen);
 }
 
 /* Load text stream and convert to UTF-8 */
 char *
-pdf_load_stream_as_utf8(fz_context *ctx, pdf_obj *src)
+pdf_new_utf8_from_pdf_stream_obj(fz_context *ctx, pdf_obj *src)
 {
 	fz_buffer *stmbuf;
-	unsigned char *srcptr;
+	char *srcptr;
 	size_t srclen;
 	char *dst = NULL;
 
 	stmbuf = pdf_load_stream(ctx, src);
-	srclen = fz_buffer_storage(ctx, stmbuf, &srcptr);
+	srclen = fz_buffer_storage(ctx, stmbuf, (unsigned char **)&srcptr);
 	fz_try(ctx)
-		dst = pdf_to_utf8_imp(ctx, srcptr, srclen);
+		dst = pdf_new_utf8_from_pdf_string(ctx, srcptr, srclen);
 	fz_always(ctx)
 		fz_drop_buffer(ctx, stmbuf);
 	fz_catch(ctx)
@@ -204,33 +284,49 @@ char *
 pdf_load_stream_or_string_as_utf8(fz_context *ctx, pdf_obj *src)
 {
 	if (pdf_is_stream(ctx, src))
-		return pdf_load_stream_as_utf8(ctx, src);
-	return pdf_to_utf8(ctx, src);
-}
-
-pdf_obj *
-pdf_to_utf8_name(fz_context *ctx, pdf_obj *src)
-{
-	char *buf = pdf_to_utf8(ctx, src);
-	pdf_obj *dst = pdf_new_name(ctx, buf);
-	fz_free(ctx, buf);
-	return dst;
+		return pdf_new_utf8_from_pdf_stream_obj(ctx, src);
+	return pdf_new_utf8_from_pdf_string_obj(ctx, src);
 }
 
 static pdf_obj *
 pdf_new_text_string_utf16be(fz_context *ctx, const char *s)
 {
-	int c, i = 0, n = fz_utflen(s);
-	unsigned char *p = fz_malloc(ctx, n * 2 + 2);
+	const char *ss;
+	int c, i, n, a, b;
+	unsigned char *p;
 	pdf_obj *obj;
+
+	ss = s;
+	n = 0;
+	while (*ss)
+	{
+		ss += fz_chartorune(&c, ss);
+		n += (c >= 0x10000) ? 2 : 1;
+	}
+
+	p = fz_malloc(ctx, n * 2 + 2);
+	i = 0;
 	p[i++] = 254;
 	p[i++] = 255;
 	while (*s)
 	{
 		s += fz_chartorune(&c, s);
-		p[i++] = (c>>8) & 0xff;
-		p[i++] = (c) & 0xff;
+		if (c >= 0x10000)
+		{
+			a = (((c - 0x10000) >> 10) & 0x3ff) + 0xD800;
+			p[i++] = (a>>8) & 0xff;
+			p[i++] = (a) & 0xff;
+			b = (((c - 0x10000)) & 0x3ff) + 0xDC00;
+			p[i++] = (b>>8) & 0xff;
+			p[i++] = (b) & 0xff;
+		}
+		else
+		{
+			p[i++] = (c>>8) & 0xff;
+			p[i++] = (c) & 0xff;
+		}
 	}
+
 	fz_try(ctx)
 		obj = pdf_new_string(ctx, (char*)p, i);
 	fz_always(ctx)

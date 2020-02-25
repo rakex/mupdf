@@ -18,32 +18,28 @@ svg_drop_document(fz_context *ctx, fz_document *doc_)
 }
 
 static int
-svg_count_pages(fz_context *ctx, fz_document *doc_)
+svg_count_pages(fz_context *ctx, fz_document *doc_, int chapter)
 {
 	return 1;
 }
 
-static fz_rect *
-svg_bound_page(fz_context *ctx, fz_page *page_, fz_rect *rect)
+static fz_rect
+svg_bound_page(fz_context *ctx, fz_page *page_)
 {
 	svg_page *page = (svg_page*)page_;
 	svg_document *doc = page->doc;
 
-	svg_parse_document_bounds(ctx, doc, fz_xml_root(doc->xml));
+	svg_parse_document_bounds(ctx, doc, doc->root);
 
-	rect->x0 = 0;
-	rect->y0 = 0;
-	rect->x1 = doc->width;
-	rect->y1 = doc->height;
-	return rect;
+	return fz_make_rect(0, 0, doc->width, doc->height);
 }
 
 static void
-svg_run_page(fz_context *ctx, fz_page *page_, fz_device *dev, const fz_matrix *ctm, fz_cookie *cookie)
+svg_run_page(fz_context *ctx, fz_page *page_, fz_device *dev, fz_matrix ctm, fz_cookie *cookie)
 {
 	svg_page *page = (svg_page*)page_;
 	svg_document *doc = page->doc;
-	svg_run_document(ctx, doc, fz_xml_root(doc->xml), dev, ctm);
+	svg_run_document(ctx, doc, doc->root, dev, ctm);
 }
 
 static void
@@ -53,13 +49,13 @@ svg_drop_page(fz_context *ctx, fz_page *page_)
 }
 
 static fz_page *
-svg_load_page(fz_context *ctx, fz_document *doc_, int number)
+svg_load_page(fz_context *ctx, fz_document *doc_, int chapter, int number)
 {
 	svg_document *doc = (svg_document*)doc_;
 	svg_page *page;
 
 	if (number != 0)
-		return NULL;
+		fz_throw(ctx, FZ_ERROR_GENERIC, "cannot find page %d", number);
 
 	page = fz_new_derived_page(ctx, svg_page);
 	page->super.bound_page = svg_bound_page;
@@ -84,22 +80,61 @@ svg_build_id_map(fz_context *ctx, svg_document *doc, fz_xml *root)
 }
 
 static fz_document *
-svg_open_document_with_buffer(fz_context *ctx, fz_buffer *buf)
+svg_open_document_with_xml(fz_context *ctx, fz_xml *xml, const char *base_uri, fz_archive *zip)
 {
 	svg_document *doc;
-	fz_xml_doc *xml;
-
-	xml = fz_parse_xml(ctx, buf, 0);
 
 	doc = fz_new_derived_document(ctx, svg_document);
 	doc->super.drop_document = svg_drop_document;
 	doc->super.count_pages = svg_count_pages;
 	doc->super.load_page = svg_load_page;
 
-	doc->xml = xml;
 	doc->idmap = NULL;
+	if (base_uri)
+		fz_strlcpy(doc->base_uri, base_uri, sizeof doc->base_uri);
+	doc->xml = NULL;
+	doc->root = xml;
+	doc->zip = zip;
 
-	svg_build_id_map(ctx, doc, fz_xml_root(xml));
+	fz_try(ctx)
+	{
+		svg_build_id_map(ctx, doc, doc->root);
+	}
+	fz_catch(ctx)
+	{
+		fz_drop_document(ctx, &doc->super);
+		fz_rethrow(ctx);
+	}
+
+	return (fz_document*)doc;
+}
+
+static fz_document *
+svg_open_document_with_buffer(fz_context *ctx, fz_buffer *buf, const char *base_uri, fz_archive *zip)
+{
+	svg_document *doc;
+
+	doc = fz_new_derived_document(ctx, svg_document);
+	doc->super.drop_document = svg_drop_document;
+	doc->super.count_pages = svg_count_pages;
+	doc->super.load_page = svg_load_page;
+
+	doc->idmap = NULL;
+	if (base_uri)
+		fz_strlcpy(doc->base_uri, base_uri, sizeof doc->base_uri);
+	doc->zip = zip;
+
+	fz_try(ctx)
+	{
+		doc->xml = fz_parse_xml(ctx, buf, 0, 0);
+		doc->root = fz_xml_root(doc->xml);
+		svg_build_id_map(ctx, doc, doc->root);
+	}
+	fz_catch(ctx)
+	{
+		fz_drop_document(ctx, &doc->super);
+		fz_rethrow(ctx);
+	}
 
 	return (fz_document*)doc;
 }
@@ -112,7 +147,7 @@ svg_open_document_with_stream(fz_context *ctx, fz_stream *file)
 
 	buf = fz_read_all(ctx, file, 0);
 	fz_try(ctx)
-		doc = svg_open_document_with_buffer(ctx, buf);
+		doc = svg_open_document_with_buffer(ctx, buf, NULL, NULL);
 	fz_always(ctx)
 		fz_drop_buffer(ctx, buf);
 	fz_catch(ctx)
@@ -121,14 +156,16 @@ svg_open_document_with_stream(fz_context *ctx, fz_stream *file)
 	return doc;
 }
 
-
+/*
+	Parse an SVG document into a display-list.
+*/
 fz_display_list *
-fz_new_display_list_from_svg(fz_context *ctx, fz_buffer *buf, float *w, float *h)
+fz_new_display_list_from_svg(fz_context *ctx, fz_buffer *buf, const char *base_uri, fz_archive *zip, float *w, float *h)
 {
 	fz_document *doc;
 	fz_display_list *list = NULL;
 
-	doc = svg_open_document_with_buffer(ctx, buf);
+	doc = svg_open_document_with_buffer(ctx, buf, base_uri, zip);
 	fz_try(ctx)
 	{
 		list = fz_new_display_list_from_page_number(ctx, doc, 0);
@@ -143,14 +180,61 @@ fz_new_display_list_from_svg(fz_context *ctx, fz_buffer *buf, float *w, float *h
 	return list;
 }
 
+/*
+	Parse an SVG document into a display-list.
+*/
+fz_display_list *
+fz_new_display_list_from_svg_xml(fz_context *ctx, fz_xml *xml, const char *base_uri, fz_archive *zip, float *w, float *h)
+{
+	fz_document *doc;
+	fz_display_list *list = NULL;
+
+	doc = svg_open_document_with_xml(ctx, xml, base_uri, zip);
+	fz_try(ctx)
+	{
+		list = fz_new_display_list_from_page_number(ctx, doc, 0);
+		*w = ((svg_document*)doc)->width;
+		*h = ((svg_document*)doc)->height;
+	}
+	fz_always(ctx)
+		fz_drop_document(ctx, doc);
+	fz_catch(ctx)
+		fz_rethrow(ctx);
+
+	return list;
+}
+
+/*
+	Create a scalable image from an SVG document.
+*/
 fz_image *
-fz_new_image_from_svg(fz_context *ctx, fz_buffer *buf)
+fz_new_image_from_svg(fz_context *ctx, fz_buffer *buf, const char *base_uri, fz_archive *zip)
 {
 	fz_display_list *list;
 	fz_image *image = NULL;
 	float w, h;
 
-	list = fz_new_display_list_from_svg(ctx, buf, &w, &h);
+	list = fz_new_display_list_from_svg(ctx, buf, base_uri, zip, &w, &h);
+	fz_try(ctx)
+		image = fz_new_image_from_display_list(ctx, w, h, list);
+	fz_always(ctx)
+		fz_drop_display_list(ctx, list);
+	fz_catch(ctx)
+		fz_rethrow(ctx);
+	return image;
+}
+
+/*
+	Create a scalable image from an SVG document.
+*/
+fz_image *
+fz_new_image_from_svg_xml(fz_context *ctx, fz_xml *xml, const char *base_uri, fz_archive *zip)
+{
+	fz_display_list *list;
+	fz_image *image = NULL;
+	float w, h;
+
+	list = fz_new_display_list_from_svg_xml(ctx, xml, base_uri, zip, &w, &h);
 	fz_try(ctx)
 		image = fz_new_image_from_display_list(ctx, w, h, list);
 	fz_always(ctx)
@@ -178,5 +262,7 @@ fz_document_handler svg_document_handler =
 	NULL,
 	svg_open_document_with_stream,
 	svg_extensions,
-	svg_mimetypes
+	svg_mimetypes,
+	NULL,
+	NULL
 };

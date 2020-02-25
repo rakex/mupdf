@@ -51,7 +51,10 @@ pdf_preload_image_resources(fz_context *ctx, pdf_document *doc)
 
 				/* Don't allow overwrites. */
 				if (!fz_hash_find(ctx, doc->resources.images, digest))
-					fz_hash_insert(ctx, doc->resources.images, digest, pdf_keep_obj(ctx, obj));
+				{
+					fz_hash_insert(ctx, doc->resources.images, digest, obj);
+					obj = NULL;
+				}
 			}
 			pdf_drop_obj(ctx, obj);
 			obj = NULL;
@@ -109,24 +112,17 @@ pdf_insert_image_resource(fz_context *ctx, pdf_document *doc, unsigned char dige
  * it may be more problematic. */
 
 pdf_obj *
-pdf_find_font_resource(fz_context *ctx, pdf_document *doc, int type, int encoding, fz_buffer *item, unsigned char digest[16])
+pdf_find_font_resource(fz_context *ctx, pdf_document *doc, int type, int encoding, fz_font *item, unsigned char digest[16])
 {
-	fz_md5 state;
-	unsigned char *data;
-	size_t size;
 	pdf_obj *res;
 
 	if (!doc->resources.fonts)
 		doc->resources.fonts = fz_new_hash_table(ctx, 4096, 16, -1, pdf_drop_obj_as_void);
 
-	size = fz_buffer_storage(ctx, item, &data);
+	fz_font_digest(ctx, item, digest);
 
-	/* Create md5 and see if we have the item in our table */
-	fz_md5_init(&state);
-	fz_md5_update(&state, (unsigned char*)&type, sizeof type);
-	fz_md5_update(&state, (unsigned char*)&encoding, sizeof encoding);
-	fz_md5_update(&state, data, size);
-	fz_md5_final(&state, digest);
+	digest[0] += type;
+	digest[1] += encoding;
 
 	res = fz_hash_find(ctx, doc->resources.fonts, digest);
 	if (res)

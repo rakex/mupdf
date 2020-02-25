@@ -54,7 +54,6 @@ static inline int fz_idiv_up(int a, int b)
 #define fz_rasterizer_aa_bits(ras) 4
 #define fz_rasterizer_aa_text_bits(ras) 4
 
-
 #elif AA_BITS > 0
 #define AA_SCALE(s, x) ((x * 255) >> 2)
 #define fz_aa_hscale 2
@@ -81,11 +80,11 @@ static inline int fz_idiv_up(int a, int b)
 #else
 
 #define AA_SCALE(scale, x) ((x * scale) >> 8)
-#define fz_aa_hscale (ctx->aa->hscale)
-#define fz_aa_vscale (ctx->aa->vscale)
-#define fz_aa_scale (ctx->aa->scale)
-#define fz_aa_bits (ctx->aa->bits)
-#define fz_aa_text_bits (ctx->aa->text_bits)
+#define fz_aa_hscale (ctx->aa.hscale)
+#define fz_aa_vscale (ctx->aa.vscale)
+#define fz_aa_scale (ctx->aa.scale)
+#define fz_aa_bits (ctx->aa.bits)
+#define fz_aa_text_bits (ctx->aa.text_bits)
 #define fz_rasterizer_aa_hscale(ras) ((ras)->aa.hscale)
 #define fz_rasterizer_aa_vscale(ras) ((ras)->aa.vscale)
 #define fz_rasterizer_aa_scale(ras) ((ras)->aa.scale)
@@ -100,17 +99,6 @@ static inline int fz_idiv_up(int a, int b)
  * antialiasing is done. If it is undefined to we will leave the antialiasing
  * accuracy as a run time choice.
  */
-struct fz_aa_context_s
-{
-	int hscale;
-	int vscale;
-	int scale;
-	int bits;
-	int text_bits;
-	float min_line_width;
-};
-
-/* Overprint bitmap */
 
 struct fz_overprint_s
 {
@@ -141,10 +129,6 @@ static int inline fz_overprint_required(const fz_overprint *op)
 
 	return 0;
 }
-
-/*
- * Scan converter
- */
 
 typedef struct fz_rasterizer_s fz_rasterizer;
 
@@ -267,7 +251,7 @@ static inline void fz_drop_rasterizer(fz_context *ctx, fz_rasterizer *r)
 
 	After this, the edges should be 'inserted' into the rasterizer.
 */
-int fz_reset_rasterizer(fz_context *ctx, fz_rasterizer *r, const fz_irect *clip);
+int fz_reset_rasterizer(fz_context *ctx, fz_rasterizer *r, fz_irect clip);
 
 /*
 	fz_insert_rasterizer: Insert an edge into a rasterizer.
@@ -342,13 +326,13 @@ static inline void fz_postindex_rasterizer(fz_context *ctx, fz_rasterizer *r)
 	fz_bound_rasterizer: Once a set of edges has been fed into a
 	rasterizer, the (device space) bounding box can be retrieved.
 */
-fz_irect *fz_bound_rasterizer(fz_context *ctx, const fz_rasterizer *rast, fz_irect *bbox);
+fz_irect fz_bound_rasterizer(fz_context *ctx, const fz_rasterizer *rast);
 
 /*
 	fz_scissor_rasterizer: Retrieve the clipping box with which the
 	rasterizer was reset.
 */
-fz_rect *fz_scissor_rasterizer(fz_context *ctx, const fz_rasterizer *rast, fz_rect *r);
+fz_rect fz_scissor_rasterizer(fz_context *ctx, const fz_rasterizer *rast);
 
 /*
 	fz_convert_rasterizer: Convert the set of edges that have
@@ -427,7 +411,6 @@ float fz_rasterizer_graphics_min_line_width(fz_rasterizer *ras);
 */
 void fz_set_rasterizer_graphics_min_line_width(fz_context *ctx, fz_aa_context *aa, float min_line_width);
 
-
 fz_rasterizer *fz_new_gel(fz_context *ctx);
 
 typedef enum
@@ -438,36 +421,32 @@ typedef enum
 
 fz_rasterizer *fz_new_edgebuffer(fz_context *ctx, fz_edgebuffer_rule rule);
 
-int fz_flatten_fill_path(fz_context *ctx, fz_rasterizer *rast, const fz_path *path, const fz_matrix *ctm, float flatness, const fz_irect *irect, fz_irect *bounds);
-int fz_flatten_stroke_path(fz_context *ctx, fz_rasterizer *rast, const fz_path *path, const fz_stroke_state *stroke, const fz_matrix *ctm, float flatness, float linewidth, const fz_irect *irect, fz_irect *bounds);
+int fz_flatten_fill_path(fz_context *ctx, fz_rasterizer *rast, const fz_path *path, fz_matrix ctm, float flatness, const fz_irect *irect, fz_irect *bounds);
+int fz_flatten_stroke_path(fz_context *ctx, fz_rasterizer *rast, const fz_path *path, const fz_stroke_state *stroke, fz_matrix ctm, float flatness, float linewidth, const fz_irect *irect, fz_irect *bounds);
 
-fz_irect *fz_bound_path_accurate(fz_context *ctx, fz_irect *bbox, const fz_irect *scissor, const fz_path *path, const fz_stroke_state *stroke, const fz_matrix *ctm, float flatness, float linewidth);
+fz_irect *fz_bound_path_accurate(fz_context *ctx, fz_irect *bbox, const fz_irect *scissor, const fz_path *path, const fz_stroke_state *stroke, fz_matrix ctm, float flatness, float linewidth);
 
-/*
- * Plotting functions.
- */
+typedef void (fz_solid_color_painter_t)(unsigned char * FZ_RESTRICT dp, int n, int w, const unsigned char * FZ_RESTRICT color, int da, const fz_overprint * FZ_RESTRICT eop);
 
-typedef void (fz_solid_color_painter_t)(unsigned char * restrict dp, int n, int w, const unsigned char * restrict color, int da, const fz_overprint * restrict eop);
+typedef void (fz_span_painter_t)(unsigned char * FZ_RESTRICT dp, int da, const unsigned char * FZ_RESTRICT sp, int sa, int n, int w, int alpha, const fz_overprint * FZ_RESTRICT eop);
+typedef void (fz_span_color_painter_t)(unsigned char * FZ_RESTRICT dp, const unsigned char * FZ_RESTRICT mp, int n, int w, const unsigned char * FZ_RESTRICT color, int da, const fz_overprint * FZ_RESTRICT eop);
 
-typedef void (fz_span_painter_t)(unsigned char * restrict dp, int da, const unsigned char * restrict sp, int sa, int n, int w, int alpha, const fz_overprint * restrict eop);
-typedef void (fz_span_color_painter_t)(unsigned char * restrict dp, const unsigned char * restrict mp, int n, int w, const unsigned char * restrict color, int da, const fz_overprint * restrict eop);
+fz_solid_color_painter_t *fz_get_solid_color_painter(int n, const unsigned char * FZ_RESTRICT color, int da, const fz_overprint * FZ_RESTRICT eop);
+fz_span_painter_t *fz_get_span_painter(int da, int sa, int n, int alpha, const fz_overprint * FZ_RESTRICT eop);
+fz_span_color_painter_t *fz_get_span_color_painter(int n, int da, const unsigned char * FZ_RESTRICT color, const fz_overprint * FZ_RESTRICT eop);
 
-fz_solid_color_painter_t *fz_get_solid_color_painter(int n, const unsigned char * restrict color, int da, const fz_overprint * restrict eop);
-fz_span_painter_t *fz_get_span_painter(int da, int sa, int n, int alpha, const fz_overprint * restrict eop);
-fz_span_color_painter_t *fz_get_span_color_painter(int n, int da, const unsigned char * restrict color, const fz_overprint * restrict eop);
+void fz_paint_image(fz_context *ctx, fz_pixmap * FZ_RESTRICT dst, const fz_irect * FZ_RESTRICT scissor, fz_pixmap * FZ_RESTRICT shape, fz_pixmap * FZ_RESTRICT group_alpha, fz_pixmap * FZ_RESTRICT img, fz_matrix ctm, int alpha, int lerp_allowed, int gridfit_as_tiled, const fz_overprint * FZ_RESTRICT eop);
+void fz_paint_image_with_color(fz_context *ctx, fz_pixmap * FZ_RESTRICT dst, const fz_irect * FZ_RESTRICT scissor, fz_pixmap * FZ_RESTRICT shape, fz_pixmap * FZ_RESTRICT group_alpha, fz_pixmap * FZ_RESTRICT img, fz_matrix ctm, const unsigned char * FZ_RESTRICT colorbv, int lerp_allowed, int gridfit_as_tiled, const fz_overprint * FZ_RESTRICT eop);
 
-void fz_paint_image(fz_pixmap * restrict dst, const fz_irect * restrict scissor, fz_pixmap * restrict shape, fz_pixmap * restrict group_alpha, const fz_pixmap * restrict img, const fz_matrix * restrict ctm, int alpha, int lerp_allowed, int gridfit_as_tiled, const fz_overprint * restrict eop);
-void fz_paint_image_with_color(fz_pixmap * restrict dst, const fz_irect * restrict scissor, fz_pixmap *restrict shape, fz_pixmap * restrict group_alpha, const fz_pixmap * restrict img, const fz_matrix * restrict ctm, const unsigned char * restrict colorbv, int lerp_allowed, int gridfit_as_tiled, const fz_overprint * restrict eop);
+void fz_paint_pixmap(fz_pixmap * FZ_RESTRICT dst, const fz_pixmap * FZ_RESTRICT src, int alpha);
+void fz_paint_pixmap_alpha(fz_pixmap * FZ_RESTRICT dst, const fz_pixmap * FZ_RESTRICT src, int alpha);
+void fz_paint_pixmap_with_mask(fz_pixmap * FZ_RESTRICT dst, const fz_pixmap * FZ_RESTRICT src, const fz_pixmap * FZ_RESTRICT msk);
+void fz_paint_pixmap_with_bbox(fz_pixmap * FZ_RESTRICT dst, const fz_pixmap * FZ_RESTRICT src, int alpha, fz_irect bbox);
+void fz_paint_pixmap_with_overprint(fz_pixmap * FZ_RESTRICT dst, const fz_pixmap * FZ_RESTRICT src, const fz_overprint * FZ_RESTRICT eop);
 
-void fz_paint_pixmap(fz_pixmap * restrict dst, const fz_pixmap * restrict src, int alpha);
-void fz_paint_pixmap_alpha(fz_pixmap * restrict dst, const fz_pixmap * restrict src, int alpha);
-void fz_paint_pixmap_with_mask(fz_pixmap * restrict dst, const fz_pixmap * restrict src, const fz_pixmap * restrict msk);
-void fz_paint_pixmap_with_bbox(fz_pixmap * restrict dst, const fz_pixmap * restrict src, int alpha, fz_irect bbox);
-void fz_paint_pixmap_with_overprint(fz_pixmap * restrict dst, const fz_pixmap * restrict src, const fz_overprint *op);
+void fz_blend_pixmap(fz_context *ctx, fz_pixmap * FZ_RESTRICT dst, fz_pixmap * FZ_RESTRICT src, int alpha, int blendmode, int isolated, const fz_pixmap * FZ_RESTRICT shape);
+void fz_blend_pixmap_knockout(fz_context *ctx, fz_pixmap * FZ_RESTRICT dst, fz_pixmap * FZ_RESTRICT src, const fz_pixmap * FZ_RESTRICT shape);
 
-void fz_blend_pixmap(fz_context *ctx, fz_pixmap * restrict dst, fz_pixmap * restrict src, int alpha, int blendmode, int isolated, const fz_pixmap * restrict shape);
-void fz_blend_pixmap_knockout(fz_context *ctx, fz_pixmap * restrict dst, fz_pixmap * restrict src, const fz_pixmap * restrict shape);
-
-void fz_paint_glyph(const unsigned char * restrict colorbv, fz_pixmap * restrict dst, unsigned char * restrict dp, const fz_glyph * restrict glyph, int w, int h, int skip_x, int skip_y, const fz_overprint * restrict eop);
+void fz_paint_glyph(const unsigned char * FZ_RESTRICT colorbv, fz_pixmap * FZ_RESTRICT dst, unsigned char * FZ_RESTRICT dp, const fz_glyph * FZ_RESTRICT glyph, int w, int h, int skip_x, int skip_y, const fz_overprint * FZ_RESTRICT eop);
 
 #endif

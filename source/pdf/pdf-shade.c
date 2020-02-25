@@ -1,9 +1,6 @@
 #include "mupdf/fitz.h"
 #include "mupdf/pdf.h"
 
-/* FIXME: Remove this somehow */
-#define FUNSEGS 32 /* size of sampled mesh for function-based shadings */
-
 /* Sample various functions into lookup tables */
 
 static void
@@ -48,13 +45,14 @@ pdf_sample_shade_function(fz_context *ctx, fz_shade *shade, int funcs, pdf_funct
 
 /* Type 1-3 -- Function-based, linear and radial shadings */
 
+#define FUNSEGS 64 /* size of sampled mesh for function-based shadings */
+
 static void
 pdf_load_function_based_shading(fz_context *ctx, pdf_document *doc, fz_shade *shade, pdf_obj *dict, pdf_function *func)
 {
 	pdf_obj *obj;
 	float x0, y0, x1, y1;
 	float fv[2];
-	fz_matrix matrix;
 	int xx, yy;
 	float *p;
 	int n = fz_colorspace_n(ctx, shade->colorspace);
@@ -70,15 +68,10 @@ pdf_load_function_based_shading(fz_context *ctx, pdf_document *doc, fz_shade *sh
 		y1 = pdf_array_get_real(ctx, obj, 3);
 	}
 
-	obj = pdf_dict_get(ctx, dict, PDF_NAME(Matrix));
-	if (obj)
-		pdf_to_matrix(ctx, obj, &matrix);
-	else
-		matrix = fz_identity;
-	shade->u.f.matrix = matrix;
+	shade->u.f.matrix = pdf_dict_get_matrix(ctx, dict, PDF_NAME(Matrix));
 	shade->u.f.xdivs = FUNSEGS;
 	shade->u.f.ydivs = FUNSEGS;
-	shade->u.f.fn_vals = fz_malloc(ctx, (FUNSEGS+1)*(FUNSEGS+1)*n*sizeof(float));
+	shade->u.f.fn_vals = Memento_label(fz_malloc(ctx, (FUNSEGS+1)*(FUNSEGS+1)*n*sizeof(float)), "shade_fn_vals");
 	shade->u.f.domain[0][0] = x0;
 	shade->u.f.domain[0][1] = y0;
 	shade->u.f.domain[1][0] = x1;
@@ -299,7 +292,7 @@ pdf_load_type7_shade(fz_context *ctx, pdf_document *doc, fz_shade *shade, pdf_ob
 /* Load all of the shading dictionary parameters, then switch on the shading type. */
 
 static fz_shade *
-pdf_load_shading_dict(fz_context *ctx, pdf_document *doc, pdf_obj *dict, const fz_matrix *transform)
+pdf_load_shading_dict(fz_context *ctx, pdf_document *doc, pdf_obj *dict, fz_matrix transform)
 {
 	fz_shade *shade = NULL;
 	pdf_function *func[FZ_MAX_COLORS] = { NULL };
@@ -320,7 +313,7 @@ pdf_load_shading_dict(fz_context *ctx, pdf_document *doc, pdf_obj *dict, const f
 		shade->type = FZ_MESH_TYPE4;
 		shade->use_background = 0;
 		shade->use_function = 0;
-		shade->matrix = *transform;
+		shade->matrix = transform;
 		shade->bbox = fz_infinite_rect;
 
 		shade->colorspace = NULL;
@@ -346,7 +339,7 @@ pdf_load_shading_dict(fz_context *ctx, pdf_document *doc, pdf_obj *dict, const f
 
 		obj = pdf_dict_get(ctx, dict, PDF_NAME(BBox));
 		if (pdf_is_array(ctx, obj))
-			pdf_to_rect(ctx, obj, &shade->bbox);
+			shade->bbox = pdf_to_rect(ctx, obj);
 
 		obj = pdf_dict_get(ctx, dict, PDF_NAME(Function));
 		if (pdf_is_dict(ctx, obj))
@@ -448,11 +441,7 @@ pdf_load_shading(fz_context *ctx, pdf_document *doc, pdf_obj *dict)
 	/* Type 2 pattern dictionary */
 	if (pdf_dict_get(ctx, dict, PDF_NAME(PatternType)))
 	{
-		obj = pdf_dict_get(ctx, dict, PDF_NAME(Matrix));
-		if (obj)
-			pdf_to_matrix(ctx, obj, &mat);
-		else
-			mat = fz_identity;
+		mat = pdf_dict_get_matrix(ctx, dict, PDF_NAME(Matrix));
 
 		obj = pdf_dict_get(ctx, dict, PDF_NAME(ExtGState));
 		if (obj)
@@ -467,13 +456,13 @@ pdf_load_shading(fz_context *ctx, pdf_document *doc, pdf_obj *dict)
 		if (!obj)
 			fz_throw(ctx, FZ_ERROR_SYNTAX, "missing shading dictionary");
 
-		shade = pdf_load_shading_dict(ctx, doc, obj, &mat);
+		shade = pdf_load_shading_dict(ctx, doc, obj, mat);
 	}
 
 	/* Naked shading dictionary */
 	else
 	{
-		shade = pdf_load_shading_dict(ctx, doc, dict, &fz_identity);
+		shade = pdf_load_shading_dict(ctx, doc, dict, fz_identity);
 	}
 
 	pdf_store_item(ctx, dict, shade, fz_shade_size(ctx, shade));

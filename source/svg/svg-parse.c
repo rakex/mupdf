@@ -117,42 +117,30 @@ svg_parse_angle(const char *str)
 }
 
 /* Coordinate transformations */
-void
-svg_parse_transform(fz_context *ctx, svg_document *doc, char *str, fz_matrix *transform)
+fz_matrix
+svg_parse_transform(fz_context *ctx, svg_document *doc, const char *str, fz_matrix transform)
 {
 	char keyword[20];
 	int keywordlen;
-	char number[20];
-	int numberlen;
 	float args[6];
 	int nargs;
-	int first = 1;
 
 	nargs = 0;
 	keywordlen = 0;
 
 	while (*str)
 	{
-		while (svg_is_whitespace(*str))
+		while (svg_is_whitespace_or_comma(*str))
 			str ++;
 		if (*str == 0)
 			break;
-
-		if (!first)
-		{
-			if (*str == ',')
-				str ++;
-			while (svg_is_whitespace(*str))
-				str ++;
-		}
-		first = 0;
 
 		/*
 		 * Parse keyword and opening parenthesis.
 		 */
 
 		keywordlen = 0;
-		while (svg_is_alpha(*str) && keywordlen < sizeof(keyword) - 1)
+		while (svg_is_alpha(*str) && keywordlen < (int)sizeof(keyword) - 1)
 			keyword[keywordlen++] = *str++;
 		keyword[keywordlen] = 0;
 
@@ -173,23 +161,12 @@ svg_parse_transform(fz_context *ctx, svg_document *doc, char *str, fz_matrix *tr
 		nargs = 0;
 		while (*str && *str != ')' && nargs < 6)
 		{
-			if (nargs > 0 && *str == ',')
+			while (svg_is_whitespace_or_comma(*str))
 				str ++;
-			while (svg_is_whitespace(*str))
-				str ++;
-
-			numberlen = 0;
-			while (svg_is_digit(*str) && numberlen < sizeof(number) - 1)
-				number[numberlen++] = *str++;
-			number[numberlen] = 0;
-
-			if (numberlen == 0)
-				fz_throw(ctx, FZ_ERROR_SYNTAX, "expected number in transform attribute");
-
-			args[nargs++] = fz_atof(number);
-
-			while (svg_is_whitespace(*str))
-				str ++;
+			if (svg_is_digit(*str))
+				str = svg_lex_number(&args[nargs++], str);
+			else
+				break;
 		}
 
 		if (*str != ')')
@@ -202,35 +179,24 @@ svg_parse_transform(fz_context *ctx, svg_document *doc, char *str, fz_matrix *tr
 
 		if (!strcmp(keyword, "matrix"))
 		{
-			fz_matrix m;
-
 			if (nargs != 6)
 				fz_throw(ctx, FZ_ERROR_SYNTAX, "wrong number of arguments to matrix(): %d", nargs);
-
-			m.a = args[0];
-			m.b = args[1];
-			m.c = args[2];
-			m.d = args[3];
-			m.e = args[4];
-			m.f = args[5];
-
-			fz_concat(transform, transform, &m);
+			transform = fz_concat(fz_make_matrix(args[0], args[1], args[2], args[3], args[4], args[5]), transform);
 		}
 
 		else if (!strcmp(keyword, "translate"))
 		{
 			if (nargs != 2)
 				fz_throw(ctx, FZ_ERROR_SYNTAX, "wrong number of arguments to translate(): %d", nargs);
-
-			fz_pre_translate(transform, args[0], args[1]);
+			transform = fz_concat(fz_translate(args[0], args[1]), transform);
 		}
 
 		else if (!strcmp(keyword, "scale"))
 		{
 			if (nargs == 1)
-				fz_pre_scale(transform, args[0], args[0]);
+				transform = fz_concat(fz_scale(args[0], args[0]), transform);
 			else if (nargs == 2)
-				fz_pre_scale(transform, args[0], args[1]);
+				transform = fz_concat(fz_scale(args[0], args[1]), transform);
 			else
 				fz_throw(ctx, FZ_ERROR_SYNTAX, "wrong number of arguments to scale(): %d", nargs);
 		}
@@ -239,41 +205,21 @@ svg_parse_transform(fz_context *ctx, svg_document *doc, char *str, fz_matrix *tr
 		{
 			if (nargs != 1)
 				fz_throw(ctx, FZ_ERROR_SYNTAX, "wrong number of arguments to rotate(): %d", nargs);
-			fz_pre_rotate(transform, args[0]);
+			transform = fz_concat(fz_rotate(args[0]), transform);
 		}
 
 		else if (!strcmp(keyword, "skewX"))
 		{
-			fz_matrix m;
-
 			if (nargs != 1)
 				fz_throw(ctx, FZ_ERROR_SYNTAX, "wrong number of arguments to skewX(): %d", nargs);
-
-			m.a = 1;
-			m.b = 0;
-			m.c = tanf(args[0] * FZ_DEGREE);
-			m.d = 1;
-			m.e = 0;
-			m.f = 0;
-
-			fz_concat(transform, transform, &m);
+			transform = fz_concat(fz_make_matrix(1, 0, tanf(args[0] * FZ_DEGREE), 1, 0, 0), transform);
 		}
 
 		else if (!strcmp(keyword, "skewY"))
 		{
-			fz_matrix m;
-
 			if (nargs != 1)
 				fz_throw(ctx, FZ_ERROR_SYNTAX, "wrong number of arguments to skewY(): %d", nargs);
-
-			m.a = 1;
-			m.b = tanf(args[0] * FZ_DEGREE);
-			m.c = 0;
-			m.d = 1;
-			m.e = 0;
-			m.f = 0;
-
-			fz_concat(transform, transform, &m);
+			transform = fz_concat(fz_make_matrix(1, tanf(args[0] * FZ_DEGREE), 0, 1, 0, 0), transform);
 		}
 
 		else
@@ -281,4 +227,6 @@ svg_parse_transform(fz_context *ctx, svg_document *doc, char *str, fz_matrix *tr
 			fz_throw(ctx, FZ_ERROR_SYNTAX, "unknown transform function: %s", keyword);
 		}
 	}
+
+	return transform;
 }
