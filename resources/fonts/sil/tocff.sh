@@ -1,9 +1,7 @@
-#!/bin/bash
+# excl.dat contains all glyphs which do not have a unicode encoding in the original otf,
+# and all glyphs in the PUA.
 
-# python scripts/makesubset.py -lig scripts/MES-2.TXT > resources/fonts/sil/subset.mes
-# python scripts/makesubset.py -sc -lig scripts/MES-2.TXT > resources/fonts/sil/subset.mes.sc
-
-tx -cff +S +T -b -n -g $(cat subset.mes.sc) -A CharisSIL-5.000-developer/sources/CharisSIL-R-designsource.otf
-tx -cff +S +T -b -n -g $(cat subset.mes) -A CharisSIL-5.000-developer/sources/CharisSIL-B-designsource.otf
-tx -cff +S +T -b -n -g $(cat subset.mes) -A CharisSIL-5.000-developer/sources/CharisSIL-BI-designsource.otf
-tx -cff +S +T -b -n -g $(cat subset.mes) -A CharisSIL-5.000-developer/sources/CharisSIL-I-designsource.otf
+tx -cff +S -n -gx $(cat excl.dat) CharisSIL-5.000-developer/sources/CharisSIL-R-designsource.otf > CharisSIL-R.cff
+tx -cff +S -n -gx $(cat excl.dat) CharisSIL-5.000-developer/sources/CharisSIL-I-designsource.otf > CharisSIL-I.cff
+tx -cff +S -n -gx $(cat excl.dat) CharisSIL-5.000-developer/sources/CharisSIL-B-designsource.otf > CharisSIL-B.cff
+tx -cff +S -n -gx $(cat excl.dat) CharisSIL-5.000-developer/sources/CharisSIL-BI-designsource.otf > CharisSIL-BI.cff

@@ -2,7 +2,7 @@
 #define MUPDF_FITZ_GETOPT_H
 
 /*
-	Simple functions/variables for use in tools.
+	getopt: Simple functions/variables for use in tools.
 */
 extern int fz_getopt(int nargc, char * const *nargv, const char *ostr);
 extern int fz_optind;

@@ -17,6 +17,7 @@ public class Context
 	}
 
 	private static native int initNative();
+	public static native int gprfSupportedNative();
 
 	public static void init() {
 		if (!inited) {

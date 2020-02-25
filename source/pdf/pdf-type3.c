@@ -1,10 +1,12 @@
 #include "mupdf/fitz.h"
 #include "mupdf/pdf.h"
 
+#include "../fitz/font-imp.h"
+
 static void
-pdf_run_glyph_func(fz_context *ctx, void *doc, void *rdb, fz_buffer *contents, fz_device *dev, fz_matrix ctm, void *gstate, fz_default_colorspaces *default_cs)
+pdf_run_glyph_func(fz_context *ctx, void *doc, void *rdb, fz_buffer *contents, fz_device *dev, const fz_matrix *ctm, void *gstate, int nested_depth, fz_default_colorspaces *default_cs)
 {
-	pdf_run_glyph(ctx, doc, (pdf_obj *)rdb, contents, dev, ctm, gstate, default_cs);
+	pdf_run_glyph(ctx, doc, (pdf_obj *)rdb, contents, dev, ctm, gstate, nested_depth, default_cs);
 }
 
 static void
@@ -39,7 +41,7 @@ pdf_load_type3_font(fz_context *ctx, pdf_document *doc, pdf_obj *rdb, pdf_obj *d
 
 		if (new_max == 0)
 			new_max = 4;
-		doc->type3_fonts = fz_realloc_array(ctx, doc->type3_fonts, new_max, fz_font*);
+		doc->type3_fonts = fz_resize_array(ctx, doc->type3_fonts, new_max, sizeof(*doc->type3_fonts));
 		doc->max_type3_fonts = new_max;
 	}
 
@@ -53,11 +55,13 @@ pdf_load_type3_font(fz_context *ctx, pdf_document *doc, pdf_obj *rdb, pdf_obj *d
 
 		fontdesc = pdf_new_font_desc(ctx);
 
-		matrix = pdf_dict_get_matrix(ctx, dict, PDF_NAME(FontMatrix));
-		bbox = pdf_dict_get_rect(ctx, dict, PDF_NAME(FontBBox));
-		bbox = fz_transform_rect(bbox, matrix);
+		obj = pdf_dict_get(ctx, dict, PDF_NAME(FontMatrix));
+		pdf_to_matrix(ctx, obj, &matrix);
 
-		font = fz_new_type3_font(ctx, buf, matrix);
+		obj = pdf_dict_get(ctx, dict, PDF_NAME(FontBBox));
+		fz_transform_rect(pdf_to_rect(ctx, obj, &bbox), &matrix);
+
+		font = fz_new_type3_font(ctx, buf, &matrix);
 		fontdesc->font = font;
 		fontdesc->size += sizeof(fz_font) + 256 * (sizeof(fz_buffer*) + sizeof(float));
 
@@ -95,7 +99,7 @@ pdf_load_type3_font(fz_context *ctx, pdf_document *doc, pdf_obj *rdb, pdf_obj *d
 					item = pdf_array_get(ctx, diff, i);
 					if (pdf_is_int(ctx, item))
 						k = pdf_to_int(ctx, item);
-					if (pdf_is_name(ctx, item) && k >= 0 && k < (int)nelem(estrings))
+					if (pdf_is_name(ctx, item) && k >= 0 && k < nelem(estrings))
 						estrings[k++] = pdf_to_name(ctx, item);
 				}
 			}
@@ -188,7 +192,7 @@ pdf_load_type3_font(fz_context *ctx, pdf_document *doc, pdf_obj *rdb, pdf_obj *d
 	return fontdesc;
 }
 
-void pdf_load_type3_glyphs(fz_context *ctx, pdf_document *doc, pdf_font_desc *fontdesc)
+void pdf_load_type3_glyphs(fz_context *ctx, pdf_document *doc, pdf_font_desc *fontdesc, int nested_depth)
 {
 	int i;
 
@@ -198,7 +202,7 @@ void pdf_load_type3_glyphs(fz_context *ctx, pdf_document *doc, pdf_font_desc *fo
 		{
 			if (fontdesc->font->t3procs[i])
 			{
-				fz_prepare_t3_glyph(ctx, fontdesc->font, i);
+				fz_prepare_t3_glyph(ctx, fontdesc->font, i, nested_depth);
 				fontdesc->size += 0; // TODO: display list size calculation
 			}
 		}

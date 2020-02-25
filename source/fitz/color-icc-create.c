@@ -12,6 +12,7 @@
 #define D50_X 0.9642f
 #define D50_Y 1.0f
 #define D50_Z 0.8249f
+static const char desc_name[] = "MuPDF Internal Profile";
 static const char copy_right[] = "Copyright Artifex Software 2017";
 #if SAVEICCPROFILE
 unsigned int icc_debug_index = 0;
@@ -42,6 +43,7 @@ static void
 fz_append_byte_n(fz_context *ctx, fz_buffer *buf, int c, int n)
 {
 	int k;
+
 	for (k = 0; k < n; k++)
 		fz_append_byte(ctx, buf, c);
 }
@@ -129,11 +131,11 @@ get_XYZ_doubletr(fz_context *ctx, icS15Fixed16Number XYZ[], float vector[])
 static void
 add_desc_tag(fz_context *ctx, fz_buffer *buf, const char text[], fz_icc_tag tag_list[], int curr_tag)
 {
-	size_t len = strlen(text);
+	int len = strlen(text);
 
 	fz_append_int32_be(ctx, buf, icSigTextDescriptionType);
 	fz_append_byte_n(ctx, buf, 0, 4);
-	fz_append_int32_be(ctx, buf, (int)len + 1);
+	fz_append_int32_be(ctx, buf, len + 1);
 	fz_append_string(ctx, buf, text);
 	/* 1 + 4 + 4 + 2 + 1 + 67 */
 	fz_append_byte_n(ctx, buf, 0, 79);
@@ -151,14 +153,14 @@ add_text_tag(fz_context *ctx, fz_buffer *buf, const char text[], fz_icc_tag tag_
 }
 
 static void
-add_common_tag_data(fz_context *ctx, fz_buffer *buf, fz_icc_tag tag_list[], const char *desc_name)
+add_common_tag_data(fz_context *ctx, fz_buffer *buf, fz_icc_tag tag_list[])
 {
 	add_desc_tag(ctx, buf, desc_name, tag_list, 0);
 	add_text_tag(ctx, buf, copy_right, tag_list, 1);
 }
 
 static void
-init_common_tags(fz_context *ctx, fz_icc_tag tag_list[], int num_tags, int *last_tag, const char *desc_name)
+init_common_tags(fz_context *ctx, fz_icc_tag tag_list[], int num_tags, int *last_tag)
 {
 	int curr_tag, temp_size;
 
@@ -171,7 +173,7 @@ init_common_tags(fz_context *ctx, fz_icc_tag tag_list[], int num_tags, int *last
 	tag_list[curr_tag].sig = icSigProfileDescriptionTag;
 
 	/* temp_size = DATATYPE_SIZE + 4 (zeros) + 4 (len) + strlen(desc_name) + 1 (null) + 4 + 4 + 2 + 1 + 67 + bytepad; */
-	temp_size = (int)strlen(desc_name) + 91;
+	temp_size = strlen(desc_name) + 91;
 
 	tag_list[curr_tag].byte_padding = get_padding(temp_size);
 	tag_list[curr_tag].size = temp_size + tag_list[curr_tag].byte_padding;
@@ -180,7 +182,7 @@ init_common_tags(fz_context *ctx, fz_icc_tag tag_list[], int num_tags, int *last
 	tag_list[curr_tag].sig = icSigCopyrightTag;
 
 	/* temp_size = DATATYPE_SIZE + 4 (zeros) + strlen(copy_right) + 1 (null); */
-	temp_size = (int)strlen(copy_right) + 9;
+	temp_size = strlen(copy_right) + 9;
 	tag_list[curr_tag].byte_padding = get_padding(temp_size);
 	tag_list[curr_tag].size = temp_size + tag_list[curr_tag].byte_padding;
 	*last_tag = curr_tag;
@@ -317,12 +319,7 @@ gsicc_create_compute_cam(fz_context *ctx, float white_src[], float *cam)
 
 /* Create ICC profile from PDF calGray and calRGB definitions */
 fz_buffer *
-fz_new_icc_data_from_cal(fz_context *ctx,
-	float wp[3],
-	float bp[3],
-	float gamma[3],
-	float matrix[9],
-	int n)
+fz_new_icc_data_from_cal_colorspace(fz_context *ctx, fz_cal_colorspace *cal)
 {
 	fz_icc_tag *tag_list;
 	icProfile iccprofile;
@@ -339,7 +336,7 @@ fz_new_icc_data_from_cal(fz_context *ctx,
 	int trc_tag_size;
 	float cat02[9];
 	float black_adapt[3];
-	const char *desc_name;
+	int n = cal->n;
 
 	/* common */
 	setheader_common(ctx, header);
@@ -349,25 +346,23 @@ fz_new_icc_data_from_cal(fz_context *ctx,
 
 	if (n == 3)
 	{
-		desc_name = "CalRGB";
 		header->colorSpace = icSigRgbData;
 		num_tags = 10; /* common (2) + rXYZ, gXYZ, bXYZ, rTRC, gTRC, bTRC, bkpt, wtpt */
 	}
 	else
 	{
-		desc_name = "CalGray";
 		header->colorSpace = icSigGrayData;
 		num_tags = 5; /* common (2) + GrayTRC, bkpt, wtpt */
 		TRC_Tags[0] = icSigGrayTRCTag;
 	}
 
-	tag_list = Memento_label(fz_malloc(ctx, sizeof(fz_icc_tag) * num_tags), "icc_tag_list");
+	tag_list = fz_malloc(ctx, sizeof(fz_icc_tag) * num_tags);
 
 	/* precompute sizes and offsets */
 	profile_size += ICC_TAG_SIZE * num_tags;
 	profile_size += 4; /* number of tags.... */
 	last_tag = -1;
-	init_common_tags(ctx, tag_list, num_tags, &last_tag, desc_name);
+	init_common_tags(ctx, tag_list, num_tags, &last_tag);
 	if (n == 3)
 	{
 		init_tag(ctx, tag_list, &last_tag, icSigRedColorantTag, ICC_XYZPT_SIZE);
@@ -403,11 +398,11 @@ fz_new_icc_data_from_cal(fz_context *ctx,
 	copy_tagtable(ctx, profile, tag_list, num_tags);
 
 	/* Common tags */
-	add_common_tag_data(ctx, profile, tag_list, desc_name);
+	add_common_tag_data(ctx, profile, tag_list);
 	tag_location = ICC_NUMBER_COMMON_TAGS;
 
 	/* Get the cat02 matrix */
-	gsicc_create_compute_cam(ctx, wp, cat02);
+	gsicc_create_compute_cam(ctx, cal->wp, cat02);
 
 	/* The matrix */
 	if (n == 3)
@@ -417,7 +412,7 @@ fz_new_icc_data_from_cal(fz_context *ctx,
 		for (k = 0; k < 3; k++)
 		{
 			/* Apply the cat02 matrix to the primaries */
-			apply_adaption(ctx, cat02, &(matrix[k * 3]), &(primary[0]));
+			apply_adaption(ctx, cat02, &(cal->matrix[k * 3]), &(primary[0]));
 			get_XYZ_doubletr(ctx, temp_XYZ, &(primary[0]));
 			add_xyzdata(ctx, profile, temp_XYZ);
 			tag_location++;
@@ -430,7 +425,7 @@ fz_new_icc_data_from_cal(fz_context *ctx,
 	tag_location++;
 
 	/* Black point. Apply cat02*/
-	apply_adaption(ctx, cat02, bp, &(black_adapt[0]));
+	apply_adaption(ctx, cat02, cal->bp, &(black_adapt[0]));
 	get_XYZ_doubletr(ctx, temp_XYZ, &(black_adapt[0]));
 	add_xyzdata(ctx, profile, temp_XYZ);
 	tag_location++;
@@ -438,7 +433,7 @@ fz_new_icc_data_from_cal(fz_context *ctx,
 	/* Gamma */
 	for (k = 0; k < n; k++)
 	{
-		encode_gamma = float2u8Fixed8(ctx, gamma[k]);
+		encode_gamma = float2u8Fixed8(ctx, cal->gamma[k]);
 		add_gammadata(ctx, profile, encode_gamma, icSigCurveType);
 		tag_location++;
 	}

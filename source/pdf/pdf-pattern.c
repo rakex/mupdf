@@ -34,6 +34,7 @@ pdf_pattern *
 pdf_load_pattern(fz_context *ctx, pdf_document *doc, pdf_obj *dict)
 {
 	pdf_pattern *pat;
+	pdf_obj *obj;
 
 	if ((pat = pdf_find_item(ctx, pdf_drop_pattern_imp, dict)) != NULL)
 	{
@@ -55,8 +56,15 @@ pdf_load_pattern(fz_context *ctx, pdf_document *doc, pdf_obj *dict)
 		pat->ismask = pdf_dict_get_int(ctx, dict, PDF_NAME(PaintType)) == 2;
 		pat->xstep = pdf_dict_get_real(ctx, dict, PDF_NAME(XStep));
 		pat->ystep = pdf_dict_get_real(ctx, dict, PDF_NAME(YStep));
-		pat->bbox = pdf_dict_get_rect(ctx, dict, PDF_NAME(BBox));
-		pat->matrix = pdf_dict_get_matrix(ctx, dict, PDF_NAME(Matrix));
+
+		obj = pdf_dict_get(ctx, dict, PDF_NAME(BBox));
+		pdf_to_rect(ctx, obj, &pat->bbox);
+
+		obj = pdf_dict_get(ctx, dict, PDF_NAME(Matrix));
+		if (obj)
+			pdf_to_matrix(ctx, obj, &pat->matrix);
+		else
+			pat->matrix = fz_identity;
 
 		pat->resources = pdf_dict_get(ctx, dict, PDF_NAME(Resources));
 		if (pat->resources)

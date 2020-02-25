@@ -30,7 +30,7 @@ The formula shown above is a simplification of the following formula:
 
  Ar * Cr = [(1-As)*Ab*Cb] + [(1-Ab)*As*Cs] + [Ab*As*B(Cb, Cs)]
 
-At first glance this always appears to be a mistake to me, as it looks
+At first glange this always appears to be a mistake to me, as it looks
 like they have make a mistake in the division.
 
 However, if we consider the result alpha equation:
@@ -52,6 +52,7 @@ And thus:
  Ar * Cr = (1 - As) * Ab * Cb + As * [ (1-Ab)*Cs + Ab * B(Cb,Cs) ]
 
 as required.
+
 
 Alpha blending on top of compositing:
 =====================================
@@ -107,7 +108,7 @@ static const char *fz_blendmode_names[] =
 int fz_lookup_blendmode(const char *name)
 {
 	int i;
-	for (i = 0; i < (int)nelem(fz_blendmode_names); i++)
+	for (i = 0; i < nelem(fz_blendmode_names); i++)
 		if (!strcmp(name, fz_blendmode_names[i]))
 			return i;
 	return FZ_BLEND_NORMAL;
@@ -115,7 +116,7 @@ int fz_lookup_blendmode(const char *name)
 
 char *fz_blendmode_name(int blendmode)
 {
-	if (blendmode >= 0 && blendmode < (int)nelem(fz_blendmode_names))
+	if (blendmode >= 0 && blendmode < nelem(fz_blendmode_names))
 		return (char*)fz_blendmode_names[blendmode];
 	return "Normal";
 }
@@ -313,7 +314,7 @@ fz_hue_rgb(unsigned char *rr, unsigned char *rg, unsigned char *rb, int br, int 
 /* Blending loops */
 
 static inline void
-fz_blend_separable(byte * FZ_RESTRICT bp, int bal, const byte * FZ_RESTRICT sp, int sal, int n1, int w, int blendmode, int complement, int first_spot)
+fz_blend_separable(byte * restrict bp, int bal, const byte * restrict sp, int sal, int n1, int w, int blendmode, int complement, int first_spot)
 {
 	int k;
 	do
@@ -413,7 +414,7 @@ fz_blend_separable(byte * FZ_RESTRICT bp, int bal, const byte * FZ_RESTRICT sp, 
 }
 
 static inline void
-fz_blend_nonseparable_gray(byte * FZ_RESTRICT bp, int bal, const byte * FZ_RESTRICT sp, int sal, int n, int w, int blendmode, int first_spot)
+fz_blend_nonseparable_gray(byte * restrict bp, int bal, const byte * restrict sp, int sal, int n, int w, int blendmode, int first_spot)
 {
 	do
 	{
@@ -460,6 +461,7 @@ fz_blend_nonseparable_gray(byte * FZ_RESTRICT bp, int bal, const byte * FZ_RESTR
 				}
 				if (bal)
 					bp[n] = ba + sa - saba;
+
 			}
 		}
 		sp += n + sal;
@@ -468,7 +470,7 @@ fz_blend_nonseparable_gray(byte * FZ_RESTRICT bp, int bal, const byte * FZ_RESTR
 }
 
 static inline void
-fz_blend_nonseparable(byte * FZ_RESTRICT bp, int bal, const byte * FZ_RESTRICT sp, int sal, int n, int w, int blendmode, int complement, int first_spot)
+fz_blend_nonseparable(byte * restrict bp, int bal, const byte * restrict sp, int sal, int n, int w, int blendmode, int complement, int first_spot)
 {
 	do
 	{
@@ -492,7 +494,7 @@ fz_blend_nonseparable(byte * FZ_RESTRICT bp, int bal, const byte * FZ_RESTRICT s
 
 				/* ugh, division to get non-premul components */
 				int invsa = sa ? 255 * 256 / sa : 0;
-				int invba = 255 * 256 / ba;
+				int invba = ba ? 255 * 256 / ba : 0;
 
 				int sr = (sp[0] * invsa) >> 8;
 				int sg = (sp[1] * invsa) >> 8;
@@ -581,7 +583,7 @@ fz_blend_nonseparable(byte * FZ_RESTRICT bp, int bal, const byte * FZ_RESTRICT s
 }
 
 static inline void
-fz_blend_separable_nonisolated(byte * FZ_RESTRICT bp, int bal, const byte * FZ_RESTRICT sp, int sal, int n1, int w, int blendmode, int complement, const byte * FZ_RESTRICT hp, int alpha, int first_spot)
+fz_blend_separable_nonisolated(byte * restrict bp, int bal, const byte * restrict sp, int sal, int n1, int w, int blendmode, int complement, const byte * restrict hp, int alpha, int first_spot)
 {
 	int k;
 
@@ -775,7 +777,7 @@ fz_blend_separable_nonisolated(byte * FZ_RESTRICT bp, int bal, const byte * FZ_R
 }
 
 static inline void
-fz_blend_nonseparable_nonisolated_gray(byte * FZ_RESTRICT bp, int bal, const byte * FZ_RESTRICT sp, int sal, int n, int w, int blendmode, const byte * FZ_RESTRICT hp, int alpha, int first_spot)
+fz_blend_nonseparable_nonisolated_gray(byte * restrict bp, int bal, const byte * restrict sp, int sal, int n, int w, int blendmode, const byte * restrict hp, int alpha, int first_spot)
 {
 	do
 	{
@@ -851,7 +853,7 @@ fz_blend_nonseparable_nonisolated_gray(byte * FZ_RESTRICT bp, int bal, const byt
 }
 
 static inline void
-fz_blend_nonseparable_nonisolated(byte * FZ_RESTRICT bp, int bal, const byte * FZ_RESTRICT sp, int sal, int n, int w, int blendmode, int complement, const byte * FZ_RESTRICT hp, int alpha, int first_spot)
+fz_blend_nonseparable_nonisolated(byte * restrict bp, int bal, const byte * restrict sp, int sal, int n, int w, int blendmode, int complement, const byte * restrict hp, int alpha, int first_spot)
 {
 	do
 	{
@@ -1041,7 +1043,7 @@ fz_blend_nonseparable_nonisolated(byte * FZ_RESTRICT bp, int bal, const byte * F
 
 #ifdef PARANOID_PREMULTIPLY
 static void
-verify_premultiply(fz_context *ctx, const fz_pixmap * FZ_RESTRICT dst)
+verify_premultiply(fz_context *ctx, const fz_pixmap * restrict dst)
 {
 	unsigned char *dp = dst->samples;
 	int w = dst->w;
@@ -1066,11 +1068,12 @@ verify_premultiply(fz_context *ctx, const fz_pixmap * FZ_RESTRICT dst)
 #endif
 
 void
-fz_blend_pixmap(fz_context *ctx, fz_pixmap * FZ_RESTRICT dst, fz_pixmap * FZ_RESTRICT src, int alpha, int blendmode, int isolated, const fz_pixmap * FZ_RESTRICT shape)
+fz_blend_pixmap(fz_context *ctx, fz_pixmap * restrict dst, fz_pixmap * restrict src, int alpha, int blendmode, int isolated, const fz_pixmap * restrict shape)
 {
 	unsigned char *sp;
 	unsigned char *dp;
 	fz_irect bbox;
+	fz_irect bbox2;
 	int x, y, w, h, n;
 	int da, sa;
 	int complement;
@@ -1095,7 +1098,9 @@ fz_blend_pixmap(fz_context *ctx, fz_pixmap * FZ_RESTRICT dst, fz_pixmap * FZ_RES
 		}
 	}
 
-	bbox = fz_intersect_irect(fz_pixmap_bbox(ctx, src), fz_pixmap_bbox(ctx, dst));
+	fz_pixmap_bbox_no_ctx(dst, &bbox);
+	fz_pixmap_bbox_no_ctx(src, &bbox2);
+	fz_intersect_irect(&bbox, &bbox2);
 
 	x = bbox.x0;
 	y = bbox.y0;
@@ -1243,7 +1248,7 @@ fz_blend_pixmap(fz_context *ctx, fz_pixmap * FZ_RESTRICT dst, fz_pixmap * FZ_RES
 }
 
 static inline void
-fz_blend_knockout(byte * FZ_RESTRICT bp, int bal, const byte * FZ_RESTRICT sp, int sal, int n1, int w, const byte * FZ_RESTRICT hp)
+fz_blend_knockout(byte * restrict bp, int bal, const byte * restrict sp, int sal, int n1, int w, const byte * restrict hp)
 {
 	int k;
 	do
@@ -1289,18 +1294,19 @@ fz_blend_knockout(byte * FZ_RESTRICT bp, int bal, const byte * FZ_RESTRICT sp, i
 }
 
 void
-fz_blend_pixmap_knockout(fz_context *ctx, fz_pixmap * FZ_RESTRICT dst, fz_pixmap * FZ_RESTRICT src, const fz_pixmap * FZ_RESTRICT shape)
+fz_blend_pixmap_knockout(fz_context *ctx, fz_pixmap * restrict dst, fz_pixmap * restrict src, const fz_pixmap * restrict shape)
 {
 	unsigned char *sp;
 	unsigned char *dp;
-	fz_irect sbox, dbox, bbox;
+	fz_irect bbox;
+	fz_irect bbox2;
 	int x, y, w, h, n;
 	int da, sa;
 	const unsigned char *hp;
 
-	dbox = fz_pixmap_bbox_no_ctx(dst);
-	sbox = fz_pixmap_bbox_no_ctx(src);
-	bbox = fz_intersect_irect(dbox, sbox);
+	fz_pixmap_bbox_no_ctx(dst, &bbox);
+	fz_pixmap_bbox_no_ctx(src, &bbox2);
+	fz_intersect_irect(&bbox, &bbox2);
 
 	x = bbox.x0;
 	y = bbox.y0;

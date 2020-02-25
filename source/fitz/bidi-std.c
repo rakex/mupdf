@@ -369,9 +369,9 @@ void set_deferred_level_run(fz_bidi_level *pval, size_t cval, size_t iStart, fz_
 			or at the end of the input text.
 
 ------------------------------------------------------------------------*/
-size_t fz_bidi_resolve_paragraphs(fz_bidi_chartype *types, size_t cch)
+int fz_bidi_resolve_paragraphs(fz_bidi_chartype *types, int cch)
 {
-	size_t ich;
+	int ich;
 
 	// skip characters not of type B
 	for(ich = 0; ich < cch && types[ich] != BDI_B; ich++)

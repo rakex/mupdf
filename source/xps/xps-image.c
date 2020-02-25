@@ -11,18 +11,19 @@ xps_load_image(fz_context *ctx, xps_document *doc, xps_part *part)
 
 /* FIXME: area unused! */
 static void
-xps_paint_image_brush(fz_context *ctx, xps_document *doc, fz_matrix ctm, fz_rect area, char *base_uri, xps_resource *dict,
+xps_paint_image_brush(fz_context *ctx, xps_document *doc, const fz_matrix *ctm, const fz_rect *area, char *base_uri, xps_resource *dict,
 	fz_xml *root, void *vimage)
 {
 	fz_image *image = vimage;
 	float xs, ys;
+	fz_matrix local_ctm = *ctm;
 
 	if (image->xres == 0 || image->yres == 0)
 		return;
 	xs = image->w * 96 / image->xres;
 	ys = image->h * 96 / image->yres;
-	ctm = fz_pre_scale(ctm, xs, ys);
-	fz_fill_image(ctx, doc->dev, image, ctm, doc->opacity[doc->opacity_top], fz_default_color_params);
+	fz_pre_scale(&local_ctm, xs, ys);
+	fz_fill_image(ctx, doc->dev, image, &local_ctm, doc->opacity[doc->opacity_top], fz_default_color_params(ctx));
 }
 
 static void
@@ -89,7 +90,7 @@ xps_find_image_brush_source_part(fz_context *ctx, xps_document *doc, char *base_
 }
 
 void
-xps_parse_image_brush(fz_context *ctx, xps_document *doc, fz_matrix ctm, fz_rect area,
+xps_parse_image_brush(fz_context *ctx, xps_document *doc, const fz_matrix *ctm, const fz_rect *area,
 	char *base_uri, xps_resource *dict, fz_xml *root)
 {
 	xps_part *part = NULL;
@@ -101,13 +102,8 @@ xps_parse_image_brush(fz_context *ctx, xps_document *doc, fz_matrix ctm, fz_rect
 	}
 	fz_catch(ctx)
 	{
-		if (fz_caught(ctx) == FZ_ERROR_TRYLATER)
-		{
-			if (doc->cookie)
-				doc->cookie->incomplete = 1;
-		}
-		else
-			fz_warn(ctx, "cannot find image source");
+		fz_rethrow_if(ctx, FZ_ERROR_TRYLATER);
+		fz_warn(ctx, "cannot find image source");
 		return;
 	}
 
@@ -121,6 +117,7 @@ xps_parse_image_brush(fz_context *ctx, xps_document *doc, fz_matrix ctm, fz_rect
 	}
 	fz_catch(ctx)
 	{
+		fz_rethrow_if(ctx, FZ_ERROR_TRYLATER);
 		fz_warn(ctx, "cannot decode image resource");
 		return;
 	}

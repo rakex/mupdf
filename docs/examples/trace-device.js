@@ -3,7 +3,7 @@ var Q = JSON.stringify
 var pathPrinter = {
 	moveTo: function (x,y) { print("moveTo", x, y) },
 	lineTo: function (x,y) { print("lineTo", x, y) },
-	curveTo: function (x1,y1,x2,y2,x3,y3) { print("curveTo", x1, y1, x2, y2, x3, y3) },
+	curveTo: function (x1,y1,x2,y2,x3,y3) { print("curveTo", x1, y1, x2, y2, x3 ,y3) },
 	closePath: function () { print("closePath") },
 }
 
@@ -93,10 +93,10 @@ var traceDevice = {
 	},
 }
 
-if (scriptArgs.length != 2)
+if (argv.length != 3)
 	print("usage: mutool run trace-device.js document.pdf pageNumber")
 else {
-	var doc = new Document(scriptArgs[0]);
-	var page = doc.loadPage(parseInt(scriptArgs[1])-1);
+	var doc = new Document(argv[1]);
+	var page = doc.loadPage(parseInt(argv[2])-1);
 	page.run(traceDevice, Identity);
 }

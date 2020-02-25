@@ -63,6 +63,16 @@ static const unsigned char png_signature[8] =
 	137, 80, 78, 71, 13, 10, 26, 10
 };
 
+static void *zalloc_png(void *opaque, unsigned int items, unsigned int size)
+{
+	return fz_malloc_array_no_throw(opaque, items, size);
+}
+
+static void zfree_png(void *opaque, void *address)
+{
+	fz_free(opaque, address);
+}
+
 static inline int paeth(int a, int b, int c)
 {
 	/* The definitions of ac and bc are correct, not a typo. */
@@ -182,9 +192,7 @@ png_deinterlace(fz_context *ctx, struct info *info, unsigned int *passw, unsigne
 	unsigned char *output;
 	unsigned int p, x, y, k;
 
-	if (info->height > UINT_MAX / stride)
-		fz_throw(ctx, FZ_ERROR_MEMORY, "image too large");
-	output = Memento_label(fz_malloc(ctx, info->height * stride), "png_deinterlace");
+	output = fz_malloc_array(ctx, info->height, stride);
 
 	for (p = 0; p < 7; p++)
 	{
@@ -336,12 +344,10 @@ png_read_trns(fz_context *ctx, struct info *info, const unsigned char *p, unsign
 static void
 png_read_icc(fz_context *ctx, struct info *info, const unsigned char *p, unsigned int size)
 {
-#if FZ_ENABLE_ICC
 	fz_stream *mstm = NULL, *zstm = NULL;
 	fz_colorspace *cs = NULL;
-	fz_buffer *buf = NULL;
 	size_t m = fz_mini(80, size);
-	size_t n = fz_strnlen((const char *)p, m);
+	size_t n = strnlen((const char *)p, m);
 	if (n + 2 > m)
 	{
 		fz_warn(ctx, "invalid ICC profile name");
@@ -350,26 +356,23 @@ png_read_icc(fz_context *ctx, struct info *info, const unsigned char *p, unsigne
 
 	fz_var(mstm);
 	fz_var(zstm);
-	fz_var(buf);
 
 	fz_try(ctx)
 	{
 		mstm = fz_open_memory(ctx, p + n + 2, size - n - 2);
 		zstm = fz_open_flated(ctx, mstm, 15);
-		buf = fz_read_all(ctx, zstm, 0);
-		cs = fz_new_icc_colorspace(ctx, info->type, 0, NULL, buf);
+		cs = fz_new_icc_colorspace_from_stream(ctx, (const char *)p, zstm);
+		/* drop old one in case we have multiple ICC profiles */
 		fz_drop_colorspace(ctx, info->cs);
 		info->cs = cs;
 	}
 	fz_always(ctx)
 	{
-		fz_drop_buffer(ctx, buf);
-		fz_drop_stream(ctx, zstm);
 		fz_drop_stream(ctx, mstm);
+		fz_drop_stream(ctx, zstm);
 	}
 	fz_catch(ctx)
-		fz_warn(ctx, "ignoring embedded ICC profile in PNG");
-#endif
+		fz_warn(ctx, "cannot read embedded ICC profile");
 }
 
 static void
@@ -450,10 +453,10 @@ png_read_image(fz_context *ctx, struct info *info, const unsigned char *p, size_
 			info->size = passofs[7];
 		}
 
-		info->samples = Memento_label(fz_malloc(ctx, info->size), "png_samples");
+		info->samples = fz_malloc(ctx, info->size);
 
-		stm.zalloc = fz_zlib_alloc;
-		stm.zfree = fz_zlib_free;
+		stm.zalloc = zalloc_png;
+		stm.zfree = zfree_png;
 		stm.opaque = ctx;
 
 		stm.next_out = info->samples;
@@ -461,7 +464,10 @@ png_read_image(fz_context *ctx, struct info *info, const unsigned char *p, size_
 
 		code = inflateInit(&stm);
 		if (code != Z_OK)
+		{
+			fz_free(ctx, info->samples);
 			fz_throw(ctx, FZ_ERROR_GENERIC, "zlib error: %s", stm.msg);
+		}
 	}
 
 	fz_try(ctx)

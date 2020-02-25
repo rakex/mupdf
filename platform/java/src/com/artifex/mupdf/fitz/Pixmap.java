@@ -67,7 +67,6 @@ public class Pixmap
 	public native int getXResolution();
 	public native int getYResolution();
 	public native void invert();
-	public native void invertLuminance();
 	public native void gamma(float gamma);
 
 	public Rect getBounds() {
