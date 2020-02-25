@@ -10,9 +10,16 @@ public class PDFObject
 
 	protected native void finalize();
 
+	public void destroy() {
+		finalize();
+		pointer = 0;
+	}
+
 	private PDFObject(long p) {
 		pointer = p;
 	}
+
+	private static native long newNull();
 
 	public native boolean isIndirect();
 	public native boolean isNull();
@@ -34,14 +41,10 @@ public class PDFObject
 	public native String asString();
 	public native byte[] asByteString();
 
-	public native String toString(boolean tight, boolean ascii);
-
-	public String toString(boolean tight) {
-		return toString(tight, false);
-	}
+	public native String toString(boolean tight);
 
 	public String toString() {
-		return toString(false, false);
+		return toString(false);
 	}
 
 	public native PDFObject resolve();
@@ -204,5 +207,5 @@ public class PDFObject
 		pushPDFObject(obj);
 	}
 
-	public static final PDFObject Null = new PDFObject(0);
+	public static final PDFObject Null = new PDFObject(newNull());
 }

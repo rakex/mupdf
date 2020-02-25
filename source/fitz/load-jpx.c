@@ -82,7 +82,7 @@ static void * JP2_Callback_Conv
 jpx_alloc(long size, JP2_Callback_Param param)
 {
 	fz_context *ctx = (fz_context *) param;
-	return Memento_label(fz_malloc(ctx, size), "jpx_alloc");
+	return fz_malloc(ctx, size);
 }
 
 static JP2_Error JP2_Callback_Conv
@@ -115,8 +115,9 @@ jpx_write(unsigned char * pucData, short sComponent, unsigned long ulRow,
 	fz_jpxd *state = (fz_jpxd *) param;
 	JP2_Property_Value hstep, vstep;
 	unsigned char *row;
-	int w, h, n, k, entries, expand;
+	int w, h, n, entries, expand;
 	JP2_Property_Value x, y, i, bps, sign;
+	JP2_Property_Value k;
 	unsigned long **palette;
 
 	w = state->pix->w;
@@ -297,81 +298,45 @@ jpx_read_image(fz_context *ctx, fz_jpxd *state, const unsigned char *data, size_
 		if (state->xres == 0 || state->yres == 0)
 			state->xres = state->yres = 72;
 
-		state->cs = NULL;
-
 		if (defcs)
 		{
-			if ((JP2_Property_Value)defcs->n == nchans)
-				state->cs = fz_keep_colorspace(ctx, defcs);
+			if (fz_colorspace_n(ctx, defcs) == nchans)
+			{
+				state->cs = defcs;
+			}
 			else
-				fz_warn(ctx, "jpx file (%lu) and dict colorspace (%d, %s) do not match", nchans, defcs->n, defcs->name);
-		}
-
-#if FZ_ENABLE_ICC
-		if (!state->cs && colorspace == cJP2_Colorspace_Palette_ICCa)
-		{
-			unsigned char *iccprofile = NULL;
-			unsigned long size = 0;
-			fz_buffer *cbuf = NULL;
-			fz_var(cbuf);
-
-			err = JP2_Decompress_GetICC(doc, &iccprofile, &size);
-			if (err != cJP2_Error_OK)
-				fz_throw(ctx, FZ_ERROR_GENERIC, "cannot get ICC color profile: %d", (int) err);
-
-			fz_try(ctx)
 			{
-				cbuf = fz_new_buffer_from_copied_data(ctx, iccprofile, size);
-				state->cs = fz_new_icc_colorspace(ctx, FZ_COLORSPACE_NONE, 0, NULL, cbuf);
-			}
-			fz_always(ctx)
-				fz_drop_buffer(ctx, cbuf);
-			fz_catch(ctx)
-				fz_warn(ctx, "ignoring embedded ICC profile in JPX");
-
-			if (state->cs && (JP2_Property_Value)state->cs->n != nchans)
-			{
-				fz_warn(ctx, "invalid number of components in ICC profile, ignoring ICC profile in JPX");
-				fz_drop_colorspace(ctx, state->cs);
-				state->cs = NULL;
+				fz_warn(ctx, "jpx file (%lu) and dict colorspace (%d, %s) do not match", nchans, fz_colorspace_n(ctx, defcs), fz_colorspace_name(ctx, defcs));
+				defcs = NULL;
 			}
 		}
-#endif
 
-		if (!state->cs)
+		if (!defcs)
 		{
 			switch (colors)
 			{
-			case 4:
-				state->cs = fz_keep_colorspace(ctx, fz_device_cmyk(ctx));
-				break;
-			case 3:
-				if (colorspace == cJP2_Colorspace_CIE_LABa)
-					state->cs = fz_keep_colorspace(ctx, fz_device_lab(ctx));
+			case 4: state->cs = fz_device_cmyk(ctx); break;
+			case 3: if (colorspace == cJP2_Colorspace_CIE_LABa)
+					state->cs = fz_device_lab(ctx);
 				else
-					state->cs = fz_keep_colorspace(ctx, fz_device_rgb(ctx));
+					state->cs = fz_device_rgb(ctx);
 				break;
-			case 1:
-				state->cs = fz_keep_colorspace(ctx, fz_device_gray(ctx));
-				break;
-			case 0:
-				if (alphas == 1)
+			case 1: state->cs = fz_device_gray(ctx); break;
+			case 0: if (alphas == 1)
 				{
 					/* alpha only images are rendered as grayscale */
-					state->cs = fz_keep_colorspace(ctx, fz_device_gray(ctx));
+					state->cs = fz_device_gray(ctx);
 					colors = 1;
 					alphas = 0;
 					break;
 				}
 				/* fallthrough */
-			default:
-				fz_throw(ctx, FZ_ERROR_GENERIC, "unsupported number of components: %lu", nchans);
+			default: fz_throw(ctx, FZ_ERROR_GENERIC, "unsupported number of components: %lu", nchans);
 			}
 		}
 	}
 	fz_catch(ctx)
 	{
-		fz_drop_colorspace(ctx, state->cs);
 		JP2_Decompress_End(doc);
 		fz_rethrow(ctx);
 	}
@@ -382,11 +347,11 @@ jpx_read_image(fz_context *ctx, fz_jpxd *state, const unsigned char *data, size_
 		return NULL;
 	}
 
+	state->pix = fz_new_pixmap(ctx, state->cs, state->width, state->height, NULL, alphas);
+	fz_clear_pixmap_with_value(ctx, state->pix, 0);
+
 	fz_try(ctx)
 	{
-		state->pix = fz_new_pixmap(ctx, state->cs, state->width, state->height, NULL, alphas);
-		fz_clear_pixmap_with_value(ctx, state->pix, 0);
-
 		if (HAS_PALETTE(colorspace))
 		{
 			if (!fz_colorspace_is_indexed(ctx, state->cs))
@@ -446,10 +411,7 @@ jpx_read_image(fz_context *ctx, fz_jpxd *state, const unsigned char *data, size_
 		}
 	}
 	fz_always(ctx)
-	{
-		fz_drop_colorspace(ctx, state->cs);
 		JP2_Decompress_End(doc);
-	}
 	fz_catch(ctx)
 	{
 		fz_drop_pixmap(ctx, state->pix);
@@ -474,7 +436,7 @@ fz_load_jpx_info(fz_context *ctx, const unsigned char *data, size_t size, int *w
 
 	jpx_read_image(ctx, &state, data, size, NULL, 1);
 
-	*cspacep = state.cs;
+	*cspacep = fz_keep_colorspace(ctx, state.cs); /* state.cs is a borrowed device colorspace */
 	*wp = state.width;
 	*hp = state.height;
 	*xresp = state.xres;
@@ -554,7 +516,7 @@ void *opj_malloc(size_t size)
 
 	assert(ctx != NULL);
 
-	return Memento_label(fz_malloc_no_throw(ctx, size), "opj_malloc");
+	return fz_malloc_no_throw(ctx, size);
 }
 
 void *opj_calloc(size_t n, size_t size)
@@ -572,7 +534,7 @@ void *opj_realloc(void *ptr, size_t size)
 
 	assert(ctx != NULL);
 
-	return fz_realloc_no_throw(ctx, ptr, size);
+	return fz_resize_array_no_throw(ctx, ptr, 1, size);
 }
 
 void opj_free(void *ptr)
@@ -584,31 +546,21 @@ void opj_free(void *ptr)
 	fz_free(ctx, ptr);
 }
 
-static void * opj_aligned_malloc_n(size_t alignment, size_t size)
+void * opj_aligned_malloc(size_t size)
 {
 	uint8_t *ptr;
-	size_t off;
+	int off;
 
 	if (size == 0)
 		return NULL;
 
-	size += alignment + sizeof(uint8_t);
+	size += 16 + sizeof(uint8_t);
 	ptr = opj_malloc(size);
 	if (ptr == NULL)
 		return NULL;
-	off = alignment-(((int)(intptr_t)ptr) & (alignment - 1));
-	ptr[off-1] = (uint8_t)off;
+	off = 16-(((int)(intptr_t)ptr) & 15);
+	ptr[off-1] = off;
 	return ptr + off;
-}
-
-void * opj_aligned_malloc(size_t size)
-{
-	return opj_aligned_malloc_n(16, size);
-}
-
-void * opj_aligned_32_malloc(size_t size)
-{
-	return opj_aligned_malloc_n(32, size);
 }
 
 void opj_aligned_free(void* ptr_)
@@ -633,25 +585,13 @@ void * opj_aligned_realloc(void *ptr, size_t size)
 static void fz_opj_error_callback(const char *msg, void *client_data)
 {
 	fz_context *ctx = (fz_context *)client_data;
-	char buf[200];
-	size_t n;
-	fz_strlcpy(buf, msg, sizeof buf);
-	n = strlen(buf);
-	if (buf[n-1] == '\n')
-		buf[n-1] = 0;
-	fz_warn(ctx, "openjpeg error: %s", buf);
+	fz_warn(ctx, "openjpeg error: %s", msg);
 }
 
 static void fz_opj_warning_callback(const char *msg, void *client_data)
 {
 	fz_context *ctx = (fz_context *)client_data;
-	char buf[200];
-	size_t n;
-	fz_strlcpy(buf, msg, sizeof buf);
-	n = strlen(buf);
-	if (buf[n-1] == '\n')
-		buf[n-1] = 0;
-	fz_warn(ctx, "openjpeg warning: %s", buf);
+	fz_warn(ctx, "openjpeg warning: %s", msg);
 }
 
 static void fz_opj_info_callback(const char *msg, void *client_data)
@@ -694,6 +634,18 @@ static OPJ_BOOL fz_opj_stream_seek(OPJ_OFF_T seek_pos, void * p_user_data)
 	return OPJ_TRUE;
 }
 
+static int
+l2subfactor(fz_context *ctx, unsigned int max_w, unsigned int w)
+{
+	int i;
+
+	for (i = 0; max_w != 0 && w != max_w; i++)
+		max_w >>= 1;
+	if (max_w == 0)
+		return -1;
+	return i;
+}
+
 static fz_pixmap *
 jpx_read_image(fz_context *ctx, fz_jpxd *state, const unsigned char *data, size_t size, fz_colorspace *defcs, int onlymeta)
 {
@@ -702,11 +654,15 @@ jpx_read_image(fz_context *ctx, fz_jpxd *state, const unsigned char *data, size_
 	opj_codec_t *codec;
 	opj_image_t *jpx;
 	opj_stream_t *stream;
+	unsigned char *p;
 	OPJ_CODEC_FORMAT format;
-	int a, n, k;
-	OPJ_UINT32 w, h;
-	OPJ_UINT32 x, y;
+	int a, n, w, h, depth, sgnd;
+	int x, y, k, v, stride;
 	stream_block sb;
+	unsigned int max_w, max_h;
+	int sub_w[FZ_MAX_COLORS];
+	int sub_h[FZ_MAX_COLORS];
+	int upsample_required = 0;
 	OPJ_UINT32 i;
 
 	fz_var(img);
@@ -768,6 +724,9 @@ jpx_read_image(fz_context *ctx, fz_jpxd *state, const unsigned char *data, size_
 	if (!jpx)
 		fz_throw(ctx, FZ_ERROR_GENERIC, "opj_decode failed");
 
+	depth = jpx->comps[0].prec;
+	sgnd = jpx->comps[0].sgnd;
+
 	/* Count number of alpha and color channels */
 	n = a = 0;
 	for (i = 0; i < jpx->numcomps; ++i)
@@ -778,62 +737,26 @@ jpx_read_image(fz_context *ctx, fz_jpxd *state, const unsigned char *data, size_
 			++n;
 	}
 
-	for (k = 1; k < n + a; k++)
-	{
-		if (!jpx->comps[k].data)
-		{
-			opj_image_destroy(jpx);
-			fz_throw(ctx, FZ_ERROR_GENERIC, "image components are missing data");
-		}
-	}
-
-	state->width = w = jpx->x1 - jpx->x0;
-	state->height = h = jpx->y1 - jpx->y0;
-	state->xres = 72; /* openjpeg does not read the JPEG 2000 resc box */
-	state->yres = 72; /* openjpeg does not read the JPEG 2000 resc box */
-
-	state->cs = NULL;
-
 	if (defcs)
 	{
-		if (defcs->n == n)
-			state->cs = fz_keep_colorspace(ctx, defcs);
+		if (fz_colorspace_n(ctx, defcs) == n)
+		{
+			state->cs = defcs;
+		}
 		else
+		{
 			fz_warn(ctx, "jpx file and dict colorspace do not match");
-	}
-
-#if FZ_ENABLE_ICC
-	if (!state->cs && jpx->icc_profile_buf)
-	{
-		fz_buffer *cbuf = NULL;
-		fz_var(cbuf);
-
-		fz_try(ctx)
-		{
-			cbuf = fz_new_buffer_from_copied_data(ctx, jpx->icc_profile_buf, jpx->icc_profile_len);
-			state->cs = fz_new_icc_colorspace(ctx, FZ_COLORSPACE_NONE, 0, NULL, cbuf);
-		}
-		fz_always(ctx)
-			fz_drop_buffer(ctx, cbuf);
-		fz_catch(ctx)
-			fz_warn(ctx, "ignoring embedded ICC profile in JPX");
-
-		if (state->cs && state->cs->n != n)
-		{
-			fz_warn(ctx, "invalid number of components in ICC profile, ignoring ICC profile in JPX");
-			fz_drop_colorspace(ctx, state->cs);
-			state->cs = NULL;
+			defcs = NULL;
 		}
 	}
-#endif
 
-	if (!state->cs)
+	if (!defcs)
 	{
 		switch (n)
 		{
-		case 1: state->cs = fz_keep_colorspace(ctx, fz_device_gray(ctx)); break;
-		case 3: state->cs = fz_keep_colorspace(ctx, fz_device_rgb(ctx)); break;
-		case 4: state->cs = fz_keep_colorspace(ctx, fz_device_cmyk(ctx)); break;
+		case 1: state->cs = fz_device_gray(ctx); break;
+		case 3: state->cs = fz_device_rgb(ctx); break;
+		case 4: state->cs = fz_device_cmyk(ctx); break;
 		default:
 			{
 				opj_image_destroy(jpx);
@@ -841,6 +764,44 @@ jpx_read_image(fz_context *ctx, fz_jpxd *state, const unsigned char *data, size_
 			}
 		}
 	}
+
+	max_w = jpx->comps[0].w;
+	max_h = jpx->comps[0].h;
+	for (k = 1; k < n + a; k++)
+	{
+		if (max_w < jpx->comps[k].w)
+			max_w = jpx->comps[k].w;
+		if (max_h < jpx->comps[k].w)
+			max_h = jpx->comps[k].h;
+		if (!jpx->comps[k].data)
+		{
+			opj_image_destroy(jpx);
+			fz_throw(ctx, FZ_ERROR_GENERIC, "image components are missing data");
+		}
+		if (jpx->comps[k].prec != jpx->comps[0].prec)
+		{
+			opj_image_destroy(jpx);
+			fz_throw(ctx, FZ_ERROR_GENERIC, "image components have different precision");
+		}
+	}
+
+	for (k = 0; k < n + a; k++)
+	{
+		sub_w[k] = l2subfactor(ctx, max_w, jpx->comps[k].w);
+		sub_h[k] = l2subfactor(ctx, max_h, jpx->comps[k].h);
+		if (sub_w[k] == -1 || sub_h[k] == -1)
+		{
+			opj_image_destroy(jpx);
+			fz_throw(ctx, FZ_ERROR_GENERIC, "image components are of incompatible dimensions");
+		}
+		if (sub_w[k] != 0 || sub_h[k] != 0)
+			upsample_required = 1;
+	}
+
+	state->width = w = (int)max_w;
+	state->height = h = (int)max_h;
+	state->xres = 72; /* openjpeg does not read the JPEG 2000 resc box */
+	state->yres = 72; /* openjpeg does not read the JPEG 2000 resc box */
 
 	if (onlymeta)
 	{
@@ -850,54 +811,58 @@ jpx_read_image(fz_context *ctx, fz_jpxd *state, const unsigned char *data, size_
 
 	fz_try(ctx)
 	{
-		unsigned char *samples;
-		int stride, comps;
-
 		a = !!a; /* ignore any superfluous alpha channels */
 		img = fz_new_pixmap(ctx, state->cs, w, h, NULL, a);
-		stride = fz_pixmap_stride(ctx, img);
-		comps = fz_pixmap_components(ctx, img);
-		samples = fz_pixmap_samples(ctx, img);
 
-		fz_clear_pixmap_with_value(ctx, img, 0);
-
-		for (k = 0; k < comps; k++)
+		p = img->samples;
+		if (upsample_required)
 		{
-			opj_image_comp_t *comp = &(jpx->comps[k]);
-			int oy = comp->y0 * comp->dy - jpx->y0;
-			int ox = comp->x0 * comp->dx - jpx->x0;
-
-			if (comp->data == NULL)
-				fz_throw(ctx, FZ_ERROR_GENERIC, "No data for JP2 image component %d", k);
-
-			for (y = 0; y < comp->h; y++)
+			stride = img->stride;
+			for (y = 0; y < h; y++)
 			{
-				for (x = 0; x < comp->w; x++)
+				for (k = 0; k < n + a; k++)
 				{
-					OPJ_INT32 v;
-					OPJ_UINT32 dx, dy;
-
-					v = comp->data[y * comp->w + x];
-
-					if (comp->sgnd)
-						v = v + (1 << (comp->prec - 1));
-					if (comp->prec > 8)
-						v = v >> (comp->prec - 8);
-					else if (comp->prec < 8)
-						v = v << (8 - comp->prec);
-
-					for (dy = 0; dy < comp->dy; dy++)
+					int sh = sub_h[k];
+					int sw = sub_w[k];
+					int yy = (y>>sh) * (jpx->comps[k].w >> sw);
+					OPJ_INT32 *data = &jpx->comps[k].data[yy];
+					for (x = 0; x < w; x ++)
 					{
-						for (dx = 0; dx < comp->dx; dx++)
-						{
-							OPJ_UINT32 xx = ox + x * comp->dx + dx;
-							OPJ_UINT32 yy = oy + y * comp->dy + dy;
-
-							if (xx < w && yy < h)
-								samples[yy * stride + xx * comps + k] = v;
-						}
+						v = data[x>>sw];
+						if (sgnd)
+							v = v + (1 << (depth - 1));
+						if (depth > 8)
+							v = v >> (depth - 8);
+						else if (depth < 8)
+							v = v << (8 - depth);
+						*p = v;
+						p += n + a;
+					}
+					p += 1 - w * (n + a);
+				}
+				p += stride - (n + a);
+			}
+		}
+		else
+		{
+			stride = img->stride - w * (n + a);
+			for (y = 0; y < h; y++)
+			{
+				for (x = 0; x < w; x++)
+				{
+					for (k = 0; k < n + a; k++)
+					{
+						v = jpx->comps[k].data[y * w + x];
+						if (sgnd)
+							v = v + (1 << (depth - 1));
+						if (depth > 8)
+							v = v >> (depth - 8);
+						else if (depth < 8)
+							v = v << (8 - depth);
+						*p++ = v;
 					}
 				}
+				p += stride;
 			}
 		}
 
@@ -907,10 +872,7 @@ jpx_read_image(fz_context *ctx, fz_jpxd *state, const unsigned char *data, size_
 			fz_premultiply_pixmap(ctx, img);
 	}
 	fz_always(ctx)
-	{
-		fz_drop_colorspace(ctx, state->cs);
 		opj_image_destroy(jpx);
-	}
 	fz_catch(ctx)
 	{
 		fz_drop_pixmap(ctx, img);
@@ -954,7 +916,7 @@ fz_load_jpx_info(fz_context *ctx, const unsigned char *data, size_t size, int *w
 	fz_catch(ctx)
 		fz_rethrow(ctx);
 
-	*cspacep = state.cs;
+	*cspacep = fz_keep_colorspace(ctx, state.cs);
 	*wp = state.width;
 	*hp = state.height;
 	*xresp = state.xres;

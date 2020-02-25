@@ -33,7 +33,7 @@ showbox(fz_context *ctx, fz_output *out, pdf_obj *page, char *text, pdf_obj *nam
 		if (!pdf_is_array(ctx, obj))
 			break;
 
-		bbox = pdf_to_rect(ctx, obj);
+		pdf_to_rect(ctx, obj, &bbox);
 
 		fz_write_printf(ctx, out, "<%s l=\"%g\" b=\"%g\" r=\"%g\" t=\"%g\" />\n", text, bbox.x0, bbox.y0, bbox.x1, bbox.y1);
 	}

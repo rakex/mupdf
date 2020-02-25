@@ -113,11 +113,6 @@ static fz_context *get_hb_context(void)
 	return fz_hb_secret;
 }
 
-/*
-	Lock against Harfbuzz being called
-	simultaneously in several threads. This reuses
-	FZ_LOCK_FREETYPE.
-*/
 void fz_hb_lock(fz_context *ctx)
 {
 	fz_lock(ctx, FZ_LOCK_FREETYPE);
@@ -125,10 +120,6 @@ void fz_hb_lock(fz_context *ctx)
 	set_hb_context(ctx);
 }
 
-/*
-	Unlock after a Harfbuzz call. This reuses
-	FZ_LOCK_FREETYPE.
-*/
 void fz_hb_unlock(fz_context *ctx)
 {
 	set_hb_context(NULL);
@@ -142,7 +133,7 @@ void *fz_hb_malloc(size_t size)
 
 	assert(ctx != NULL);
 
-	return Memento_label(fz_malloc_no_throw(ctx, size), "hb");
+	return fz_malloc_no_throw(ctx, size);
 }
 
 void *fz_hb_calloc(size_t n, size_t size)
@@ -151,7 +142,7 @@ void *fz_hb_calloc(size_t n, size_t size)
 
 	assert(ctx != NULL);
 
-	return Memento_label(fz_calloc_no_throw(ctx, n, size), "hb");
+	return fz_calloc_no_throw(ctx, n, size);
 }
 
 void *fz_hb_realloc(void *ptr, size_t size)
@@ -160,7 +151,7 @@ void *fz_hb_realloc(void *ptr, size_t size)
 
 	assert(ctx != NULL);
 
-	return Memento_label(fz_realloc_no_throw(ctx, ptr, size), "hb");
+	return fz_resize_array_no_throw(ctx, ptr, 1, size);
 }
 
 void fz_hb_free(void *ptr)

@@ -1,5 +1,6 @@
 #include "mupdf/fitz.h"
 #include "draw-imp.h"
+#include "glyph-cache-imp.h"
 #include "fitz-imp.h"
 
 #include <string.h>
@@ -137,7 +138,7 @@ fz_keep_glyph_cache(fz_context *ctx)
 float
 fz_subpixel_adjust(fz_context *ctx, fz_matrix *ctm, fz_matrix *subpix_ctm, unsigned char *qe, unsigned char *qf)
 {
-	float size = fz_matrix_expansion(*ctm);
+	float size = fz_matrix_expansion(ctm);
 	int q;
 	float pix_e, pix_f, r;
 
@@ -177,7 +178,7 @@ fz_subpixel_adjust(fz_context *ctx, fz_matrix *ctm, fz_matrix *subpix_ctm, unsig
 }
 
 fz_glyph *
-fz_render_stroked_glyph(fz_context *ctx, fz_font *font, int gid, fz_matrix *trm, fz_matrix ctm, const fz_stroke_state *stroke, const fz_irect *scissor, int aa)
+fz_render_stroked_glyph(fz_context *ctx, fz_font *font, int gid, fz_matrix *trm, const fz_matrix *ctm, const fz_stroke_state *stroke, const fz_irect *scissor, int aa)
 {
 	if (fz_font_ft_face(ctx, font))
 	{
@@ -187,13 +188,13 @@ fz_render_stroked_glyph(fz_context *ctx, fz_font *font, int gid, fz_matrix *trm,
 		if (stroke->dash_len > 0)
 			return NULL;
 		(void)fz_subpixel_adjust(ctx, trm, &subpix_trm, &qe, &qf);
-		return fz_render_ft_stroked_glyph(ctx, font, gid, subpix_trm, ctm, stroke, aa);
+		return fz_render_ft_stroked_glyph(ctx, font, gid, &subpix_trm, ctm, stroke, aa);
 	}
 	return fz_render_glyph(ctx, font, gid, trm, NULL, scissor, 1, aa);
 }
 
 fz_pixmap *
-fz_render_stroked_glyph_pixmap(fz_context *ctx, fz_font *font, int gid, fz_matrix *trm, fz_matrix ctm, const fz_stroke_state *stroke, const fz_irect *scissor, int aa)
+fz_render_stroked_glyph_pixmap(fz_context *ctx, fz_font *font, int gid, fz_matrix *trm, const fz_matrix *ctm, const fz_stroke_state *stroke, const fz_irect *scissor, int aa)
 {
 	if (fz_font_ft_face(ctx, font))
 	{
@@ -203,7 +204,7 @@ fz_render_stroked_glyph_pixmap(fz_context *ctx, fz_font *font, int gid, fz_matri
 		if (stroke->dash_len > 0)
 			return NULL;
 		(void)fz_subpixel_adjust(ctx, trm, &subpix_trm, &qe, &qf);
-		return fz_render_ft_stroked_glyph_pixmap(ctx, font, gid, subpix_trm, ctm, stroke, aa);
+		return fz_render_ft_stroked_glyph_pixmap(ctx, font, gid, &subpix_trm, ctm, stroke, aa);
 	}
 	return fz_render_glyph_pixmap(ctx, font, gid, trm, scissor, aa);
 }
@@ -314,7 +315,7 @@ fz_render_glyph(fz_context *ctx, fz_font *font, int gid, fz_matrix *ctm, fz_colo
 	{
 		if (is_ft_font)
 		{
-			val = fz_render_ft_glyph(ctx, font, gid, subpix_ctm, aa);
+			val = fz_render_ft_glyph(ctx, font, gid, &subpix_ctm, aa);
 		}
 		else if (fz_font_t3_procs(ctx, font))
 		{
@@ -329,7 +330,7 @@ fz_render_glyph(fz_context *ctx, fz_font *font, int gid, fz_matrix *ctm, fz_colo
 			 */
 			fz_unlock(ctx, FZ_LOCK_GLYPHCACHE);
 			locked = 0;
-			val = fz_render_t3_glyph(ctx, font, gid, subpix_ctm, model, scissor, aa);
+			val = fz_render_t3_glyph(ctx, font, gid, &subpix_ctm, model, scissor, aa);
 			fz_lock(ctx, FZ_LOCK_GLYPHCACHE);
 			locked = 1;
 		}
@@ -431,11 +432,11 @@ fz_render_glyph_pixmap(fz_context *ctx, fz_font *font, int gid, fz_matrix *ctm, 
 
 	if (is_ft_font)
 	{
-		val = fz_render_ft_glyph_pixmap(ctx, font, gid, subpix_ctm, aa);
+		val = fz_render_ft_glyph_pixmap(ctx, font, gid, &subpix_ctm, aa);
 	}
 	else if (fz_font_t3_procs(ctx, font))
 	{
-		val = fz_render_t3_glyph_pixmap(ctx, font, gid, subpix_ctm, NULL, scissor, aa);
+		val = fz_render_t3_glyph_pixmap(ctx, font, gid, &subpix_ctm, NULL, scissor, aa);
 	}
 	else
 	{
@@ -450,6 +451,7 @@ void
 fz_dump_glyph_cache_stats(fz_context *ctx)
 {
 	fz_glyph_cache *cache = ctx->glyph_cache;
+
 	fz_write_printf(ctx, fz_stderr(ctx), "Glyph Cache Size: %zu\n", cache->total);
 #ifndef NDEBUG
 	fz_write_printf(ctx, fz_stderr(ctx), "Glyph Cache Evictions: %d (%zu bytes)\n", cache->num_evictions, cache->evicted);

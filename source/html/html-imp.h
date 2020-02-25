@@ -6,7 +6,6 @@ typedef struct fz_html_font_set_s fz_html_font_set;
 typedef struct fz_html_s fz_html;
 typedef struct fz_html_box_s fz_html_box;
 typedef struct fz_html_flow_s fz_html_flow;
-typedef struct fz_css_style_splay_s fz_css_style_splay;
 
 typedef struct fz_css_s fz_css;
 typedef struct fz_css_rule_s fz_css_rule;
@@ -26,7 +25,6 @@ struct fz_html_font_face_s
 	char *family;
 	int is_bold;
 	int is_italic;
-	int is_small_caps;
 	fz_font *font;
 	char *src;
 	fz_html_font_face *next;
@@ -60,7 +58,6 @@ struct fz_css_rule_s
 	fz_css_selector *selector;
 	fz_css_property *declaration;
 	fz_css_rule *next;
-	int loaded;
 };
 
 struct fz_css_selector_s
@@ -174,22 +171,11 @@ struct fz_css_style_s
 	unsigned int border_style_1 : 1;
 	unsigned int border_style_2 : 1;
 	unsigned int border_style_3 : 1;
-	unsigned int small_caps : 1;
-	/* Ensure the extra bits in the bitfield are copied
-	 * on structure copies. */
-	unsigned int blank : 6;
 	fz_css_number line_height;
 	fz_css_color background_color;
 	fz_css_color border_color[4];
 	fz_css_color color;
 	fz_font *font;
-};
-
-struct fz_css_style_splay_s {
-	fz_css_style style;
-	fz_css_style_splay *lt;
-	fz_css_style_splay *gt;
-	fz_css_style_splay *up;
 };
 
 enum
@@ -205,13 +191,10 @@ enum
 
 struct fz_html_s
 {
-	fz_storable storable;
 	fz_pool *pool; /* pool allocator for this html tree */
 	float page_w, page_h;
-	float layout_w, layout_h, layout_em;
 	float page_margin[4];
 	fz_html_box *root;
-	char *title;
 };
 
 struct fz_html_box_s
@@ -219,29 +202,17 @@ struct fz_html_box_s
 	unsigned int type : 3;
 	unsigned int is_first_flow : 1; /* for text-indent */
 	unsigned int markup_dir : 2;
-	unsigned int heading : 3; /* h1..h6 */
-	unsigned int list_item : 23;
+	unsigned int list_item : 26;
 	float x, y, w, b; /* content */
-	float em;
-	/* During construction, 'next' plays double duty; as well
-	 * as its normal meaning of 'next sibling', the last sibling
-	 * has next meaning "the last of my children". We correct
-	 * this as a post-processing pass after construction. */
-	fz_html_box *up, *down, *next;
-	fz_html_flow *flow_head, **flow_tail;
-	char *id, *href;
-	const fz_css_style *style;
-	/* Only BOX_{BLOCK,TABLE,TABLE_ROW,TABLE_CELL} actually use the following */
 	float padding[4];
 	float margin[4];
 	float border[4];
+	float em;
+	fz_html_box *up, *down, *last, *next;
+	fz_html_flow *flow_head, **flow_tail;
+	char *id, *href;
+	fz_css_style style;
 };
-
-static inline int
-fz_html_box_has_boxes(fz_html_box *box)
-{
-	return (box->type == BOX_BLOCK || box->type == BOX_TABLE || box->type == BOX_TABLE_ROW || box->type == BOX_TABLE_CELL);
-}
 
 enum
 {
@@ -276,13 +247,12 @@ struct fz_html_flow_s
 
 	float x, y, w, h;
 	fz_html_box *box; /* for style and em */
-	fz_html_flow *next;
 	union {
-		char text[1];
+		char *text;
 		fz_image *image;
 	} content;
+	fz_html_flow *next;
 };
-
 
 fz_css *fz_new_css(fz_context *ctx);
 void fz_parse_css(fz_context *ctx, fz_css *css, const char *source, const char *file);
@@ -296,34 +266,26 @@ void fz_match_css_at_page(fz_context *ctx, fz_css_match *match, fz_css *css);
 int fz_get_css_match_display(fz_css_match *node);
 void fz_default_css_style(fz_context *ctx, fz_css_style *style);
 void fz_apply_css_style(fz_context *ctx, fz_html_font_set *set, fz_css_style *style, fz_css_match *match);
-const fz_css_style *fz_css_enlist(fz_context *ctx, const fz_css_style *style, fz_css_style_splay **tree, fz_pool *pool);
 
 float fz_from_css_number(fz_css_number number, float em, float percent_value, float auto_value);
 float fz_from_css_number_scale(fz_css_number number, float scale);
 
 fz_html_font_set *fz_new_html_font_set(fz_context *ctx);
 void fz_add_html_font_face(fz_context *ctx, fz_html_font_set *set,
-	const char *family, int is_bold, int is_italic, int is_small_caps, const char *src, fz_font *font);
-fz_font *fz_load_html_font(fz_context *ctx, fz_html_font_set *set, const char *family, int is_bold, int is_italic, int is_small_caps);
+	const char *family, int is_bold, int is_italic, const char *src, fz_font *font);
+fz_font *fz_load_html_font(fz_context *ctx, fz_html_font_set *set, const char *family, int is_bold, int is_italic);
 void fz_drop_html_font_set(fz_context *ctx, fz_html_font_set *htx);
 
 void fz_add_css_font_faces(fz_context *ctx, fz_html_font_set *set, fz_archive *zip, const char *base_uri, fz_css *css);
 
 fz_html *fz_parse_html(fz_context *ctx, fz_html_font_set *htx, fz_archive *zip, const char *base_uri, fz_buffer *buf, const char *user_css);
 void fz_layout_html(fz_context *ctx, fz_html *html, float w, float h, float em);
-void fz_draw_html(fz_context *ctx, fz_device *dev, fz_matrix ctm, fz_html *html, int page);
-fz_outline *fz_load_html_outline(fz_context *ctx, fz_html *node);
+void fz_draw_html(fz_context *ctx, fz_device *dev, const fz_matrix *ctm, fz_html *html, int page);
 
 float fz_find_html_target(fz_context *ctx, fz_html *html, const char *id);
 fz_link *fz_load_html_links(fz_context *ctx, fz_html *html, int page, const char *base_uri, void *doc);
-fz_html *fz_keep_html(fz_context *ctx, fz_html *html);
 void fz_drop_html(fz_context *ctx, fz_html *html);
 fz_bookmark fz_make_html_bookmark(fz_context *ctx, fz_html *html, int page);
 int fz_lookup_html_bookmark(fz_context *ctx, fz_html *html, fz_bookmark mark);
-void fz_debug_html(fz_context *ctx, fz_html_box *box);
-
-fz_html *fz_store_html(fz_context *ctx, fz_html *html, void *doc, int chapter);
-fz_html *fz_find_html(fz_context *ctx, void *doc, int chapter);
-void fz_purge_stored_html(fz_context *ctx, void *doc);
 
 #endif

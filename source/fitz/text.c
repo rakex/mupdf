@@ -3,11 +3,6 @@
 
 #include <string.h>
 
-/*
-	Create a new empty fz_text object.
-
-	Throws exception on failure to allocate.
-*/
 fz_text *
 fz_new_text(fz_context *ctx)
 {
@@ -45,7 +40,7 @@ fz_drop_text(fz_context *ctx, const fz_text *textc)
 }
 
 static fz_text_span *
-fz_new_text_span(fz_context *ctx, fz_font *font, int wmode, int bidi_level, fz_bidi_direction markup_dir, fz_text_language language, fz_matrix trm)
+fz_new_text_span(fz_context *ctx, fz_font *font, int wmode, int bidi_level, fz_bidi_direction markup_dir, fz_text_language language, const fz_matrix *trm)
 {
 	fz_text_span *span = fz_malloc_struct(ctx, fz_text_span);
 	span->font = fz_keep_font(ctx, font);
@@ -53,14 +48,14 @@ fz_new_text_span(fz_context *ctx, fz_font *font, int wmode, int bidi_level, fz_b
 	span->bidi_level = bidi_level;
 	span->markup_dir = markup_dir;
 	span->language = language;
-	span->trm = trm;
+	span->trm = *trm;
 	span->trm.e = 0;
 	span->trm.f = 0;
 	return span;
 }
 
 static fz_text_span *
-fz_add_text_span(fz_context *ctx, fz_text *text, fz_font *font, int wmode, int bidi_level, fz_bidi_direction markup_dir, fz_text_language language, fz_matrix trm)
+fz_add_text_span(fz_context *ctx, fz_text *text, fz_font *font, int wmode, int bidi_level, fz_bidi_direction markup_dir, fz_text_language language, const fz_matrix *trm)
 {
 	if (!text->tail)
 	{
@@ -71,10 +66,10 @@ fz_add_text_span(fz_context *ctx, fz_text *text, fz_font *font, int wmode, int b
 		text->tail->bidi_level != bidi_level ||
 		text->tail->markup_dir != markup_dir ||
 		text->tail->language != language ||
-		text->tail->trm.a != trm.a ||
-		text->tail->trm.b != trm.b ||
-		text->tail->trm.c != trm.c ||
-		text->tail->trm.d != trm.d)
+		text->tail->trm.a != trm->a ||
+		text->tail->trm.b != trm->b ||
+		text->tail->trm.c != trm->c ||
+		text->tail->trm.d != trm->d)
 	{
 		text->tail = text->tail->next = fz_new_text_span(ctx, font, wmode, bidi_level, markup_dir, language, trm);
 	}
@@ -89,37 +84,12 @@ fz_grow_text_span(fz_context *ctx, fz_text_span *span, int n)
 		return;
 	while (span->len + n > new_cap)
 		new_cap = new_cap + 36;
-	span->items = fz_realloc_array(ctx, span->items, new_cap, fz_text_item);
+	span->items = fz_resize_array(ctx, span->items, new_cap, sizeof(fz_text_item));
 	span->cap = new_cap;
 }
 
-/*
-	Add a glyph/unicode value to a text object.
-
-	text: Text object to add to.
-
-	font: The font the glyph should be added in.
-
-	trm: The transform to use for the glyph.
-
-	glyph: The glyph id to add.
-
-	unicode: The unicode character for the glyph.
-
-	wmode: 1 for vertical mode, 0 for horizontal.
-
-	bidi_level: The bidirectional level for this glyph.
-
-	markup_dir: The direction of the text as specified in the
-	markup.
-
-	language: The language in use (if known, 0 otherwise)
-	(e.g. FZ_LANG_zh_Hans).
-
-	Throws exception on failure to allocate.
-*/
 void
-fz_show_glyph(fz_context *ctx, fz_text *text, fz_font *font, fz_matrix trm, int gid, int ucs, int wmode, int bidi_level, fz_bidi_direction markup_dir, fz_text_language lang)
+fz_show_glyph(fz_context *ctx, fz_text *text, fz_font *font, const fz_matrix *trm, int gid, int ucs, int wmode, int bidi_level, fz_bidi_direction markup_dir, fz_text_language lang)
 {
 	fz_text_span *span;
 
@@ -132,36 +102,13 @@ fz_show_glyph(fz_context *ctx, fz_text *text, fz_font *font, fz_matrix trm, int 
 
 	span->items[span->len].ucs = ucs;
 	span->items[span->len].gid = gid;
-	span->items[span->len].x = trm.e;
-	span->items[span->len].y = trm.f;
+	span->items[span->len].x = trm->e;
+	span->items[span->len].y = trm->f;
 	span->len++;
 }
 
-/*
-	Add a UTF8 string to a text object.
-
-	text: Text object to add to.
-
-	font: The font the string should be added in.
-
-	trm: The transform to use.
-
-	s: The utf-8 string to add.
-
-	wmode: 1 for vertical mode, 0 for horizontal.
-
-	bidi_level: The bidirectional level for this glyph.
-
-	markup_dir: The direction of the text as specified in the
-	markup.
-
-	language: The language in use (if known, 0 otherwise)
-	(e.g. FZ_LANG_zh_Hans).
-
-	Returns the transform updated with the advance width of the string.
-*/
-fz_matrix
-fz_show_string(fz_context *ctx, fz_text *text, fz_font *user_font, fz_matrix trm, const char *s, int wmode, int bidi_level, fz_bidi_direction markup_dir, fz_text_language language)
+void
+fz_show_string(fz_context *ctx, fz_text *text, fz_font *user_font, fz_matrix *trm, const char *s, int wmode, int bidi_level, fz_bidi_direction markup_dir, fz_text_language language)
 {
 	fz_font *font;
 	int gid, ucs;
@@ -174,39 +121,21 @@ fz_show_string(fz_context *ctx, fz_text *text, fz_font *user_font, fz_matrix trm
 		fz_show_glyph(ctx, text, font, trm, gid, ucs, wmode, bidi_level, markup_dir, language);
 		adv = fz_advance_glyph(ctx, font, gid, wmode);
 		if (wmode == 0)
-			trm = fz_pre_translate(trm, adv, 0);
+			fz_pre_translate(trm, adv, 0);
 		else
-			trm = fz_pre_translate(trm, 0, -adv);
+			fz_pre_translate(trm, 0, -adv);
 	}
-
-	return trm;
 }
 
-/*
-	Find the bounds of a given text object.
-
-	text: The text object to find the bounds of.
-
-	stroke: Pointer to the stroke attributes (for stroked
-	text), or NULL (for filled text).
-
-	ctm: The matrix in use.
-
-	r: pointer to storage for the bounds.
-
-	Returns a pointer to r, which is updated to contain the
-	bounding box for the text object.
-*/
-fz_rect
-fz_bound_text(fz_context *ctx, const fz_text *text, const fz_stroke_state *stroke, fz_matrix ctm)
+fz_rect *
+fz_bound_text(fz_context *ctx, const fz_text *text, const fz_stroke_state *stroke, const fz_matrix *ctm, fz_rect *bbox)
 {
 	fz_text_span *span;
 	fz_matrix tm, trm;
 	fz_rect gbox;
-	fz_rect bbox;
 	int i;
 
-	bbox = fz_empty_rect;
+	*bbox = fz_empty_rect;
 
 	for (span = text->head; span; span = span->next)
 	{
@@ -219,9 +148,9 @@ fz_bound_text(fz_context *ctx, const fz_text *text, const fz_stroke_state *strok
 				{
 					tm.e = span->items[i].x;
 					tm.f = span->items[i].y;
-					trm = fz_concat(tm, ctm);
-					gbox = fz_bound_glyph(ctx, span->font, span->items[i].gid, trm);
-					bbox = fz_union_rect(bbox, gbox);
+					fz_concat(&trm, &tm, ctm);
+					fz_bound_glyph(ctx, span->font, span->items[i].gid, &trm, &gbox);
+					fz_union_rect(bbox, &gbox);
 				}
 			}
 		}
@@ -230,27 +159,18 @@ fz_bound_text(fz_context *ctx, const fz_text *text, const fz_stroke_state *strok
 	if (!fz_is_empty_rect(bbox))
 	{
 		if (stroke)
-			bbox = fz_adjust_rect_for_stroke(ctx, bbox, stroke, ctm);
+			fz_adjust_rect_for_stroke(ctx, bbox, stroke, ctm);
 
 		/* Compensate for the glyph cache limited positioning precision */
-		bbox.x0 -= 1;
-		bbox.y0 -= 1;
-		bbox.x1 += 1;
-		bbox.y1 += 1;
+		bbox->x0 -= 1;
+		bbox->y0 -= 1;
+		bbox->x1 += 1;
+		bbox->y1 += 1;
 	}
 
 	return bbox;
 }
 
-/*
-	Convert ISO 639 (639-{1,2,3,5}) language specification
-	strings losslessly to a 15 bit fz_text_language code.
-
-	No validation is carried out. Obviously invalid (out
-	of spec) codes will be mapped to FZ_LANG_UNSET, but
-	well-formed (but undefined) codes will be blithely
-	accepted.
-*/
 fz_text_language fz_text_language_from_string(const char *str)
 {
 	fz_text_language lang;
@@ -295,12 +215,6 @@ fz_text_language fz_text_language_from_string(const char *str)
 	return lang;
 }
 
-/*
-	Recover ISO 639 (639-{1,2,3,5}) language specification
-	strings losslessly from a 15 bit fz_text_language code.
-
-	No validation is carried out. See note above.
-*/
 char *fz_string_from_text_language(char str[8], fz_text_language lang)
 {
 	int c;

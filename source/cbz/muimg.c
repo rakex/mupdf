@@ -30,31 +30,31 @@ img_drop_document(fz_context *ctx, fz_document *doc_)
 }
 
 static int
-img_count_pages(fz_context *ctx, fz_document *doc_, int chapter)
+img_count_pages(fz_context *ctx, fz_document *doc_)
 {
 	img_document *doc = (img_document*)doc_;
 	return doc->page_count;
 }
 
-static fz_rect
-img_bound_page(fz_context *ctx, fz_page *page_)
+static fz_rect *
+img_bound_page(fz_context *ctx, fz_page *page_, fz_rect *bbox)
 {
 	img_page *page = (img_page*)page_;
 	fz_image *image = page->image;
 	int xres, yres;
-	fz_rect bbox;
 
 	fz_image_resolution(image, &xres, &yres);
-	bbox.x0 = bbox.y0 = 0;
-	bbox.x1 = image->w * DPI / xres;
-	bbox.y1 = image->h * DPI / yres;
+	bbox->x0 = bbox->y0 = 0;
+	bbox->x1 = image->w * DPI / xres;
+	bbox->y1 = image->h * DPI / yres;
 	return bbox;
 }
 
 static void
-img_run_page(fz_context *ctx, fz_page *page_, fz_device *dev, fz_matrix ctm, fz_cookie *cookie)
+img_run_page(fz_context *ctx, fz_page *page_, fz_device *dev, const fz_matrix *ctm, fz_cookie *cookie)
 {
 	img_page *page = (img_page*)page_;
+	fz_matrix local_ctm = *ctm;
 	fz_image *image = page->image;
 	int xres, yres;
 	float w, h;
@@ -62,8 +62,8 @@ img_run_page(fz_context *ctx, fz_page *page_, fz_device *dev, fz_matrix ctm, fz_
 	fz_image_resolution(image, &xres, &yres);
 	w = image->w * DPI / xres;
 	h = image->h * DPI / yres;
-	ctm = fz_pre_scale(ctm, w, h);
-	fz_fill_image(ctx, dev, image, ctm, 1, fz_default_color_params);
+	fz_pre_scale(&local_ctm, w, h);
+	fz_fill_image(ctx, dev, image, &local_ctm, 1, NULL);
 }
 
 static void
@@ -74,7 +74,7 @@ img_drop_page(fz_context *ctx, fz_page *page_)
 }
 
 static fz_page *
-img_load_page(fz_context *ctx, fz_document *doc_, int chapter, int number)
+img_load_page(fz_context *ctx, fz_document *doc_, int number)
 {
 	img_document *doc = (img_document*)doc_;
 	fz_pixmap *pixmap = NULL;
@@ -82,7 +82,7 @@ img_load_page(fz_context *ctx, fz_document *doc_, int chapter, int number)
 	img_page *page = NULL;
 
 	if (number < 0 || number >= doc->page_count)
-		fz_throw(ctx, FZ_ERROR_GENERIC, "cannot load page %d", number);
+		return NULL;
 
 	fz_var(pixmap);
 	fz_var(image);
@@ -150,7 +150,7 @@ img_open_document_with_stream(fz_context *ctx, fz_stream *file)
 		size_t len;
 		unsigned char *data;
 
-		doc->buffer = fz_read_all(ctx, file, 0);
+		doc->buffer = fz_read_all(ctx, file, 1024);
 		len = fz_buffer_storage(ctx, doc->buffer, &data);
 
 		fmt = FZ_IMAGE_UNKNOWN;
@@ -167,12 +167,6 @@ img_open_document_with_stream(fz_context *ctx, fz_stream *file)
 			doc->page_count = fz_load_pnm_subimage_count(ctx, data, len);
 			doc->load_subimage = fz_load_pnm_subimage;
 			doc->format = "PNM";
-		}
-		else if (fmt == FZ_IMAGE_JBIG2)
-		{
-			doc->page_count = fz_load_jbig2_subimage_count(ctx, data, len);
-			doc->load_subimage = fz_load_jbig2_subimage;
-			doc->format = "JBIG2";
 		}
 		else
 		{
@@ -195,8 +189,6 @@ static const char *img_extensions[] =
 	"gif",
 	"hdp",
 	"j2k",
-	"jb2",
-	"jbig2",
 	"jfif",
 	"jfif-tbnl",
 	"jp2",
@@ -208,7 +200,6 @@ static const char *img_extensions[] =
 	"pam",
 	"pbm",
 	"pgm",
-	"pkm",
 	"png",
 	"pnm",
 	"ppm",
@@ -230,8 +221,6 @@ static const char *img_mimetypes[] =
 	"image/png",
 	"image/tiff",
 	"image/vnd.ms-photo",
-	"image/x-jb2",
-	"image/x-jbig2",
 	"image/x-portable-anymap",
 	"image/x-portable-arbitrarymap",
 	"image/x-portable-bitmap",
@@ -247,7 +236,5 @@ fz_document_handler img_document_handler =
 	NULL,
 	img_open_document_with_stream,
 	img_extensions,
-	img_mimetypes,
-	NULL,
-	NULL
+	img_mimetypes
 };

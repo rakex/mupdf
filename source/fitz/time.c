@@ -51,7 +51,7 @@ fz_utf8_from_wchar(const wchar_t *s)
 		len += fz_runelen(*src++);
 	}
 
-	d = Memento_label(malloc(len), "utf8_from_wchar");
+	d = malloc(len);
 	if (d != NULL)
 	{
 		dst = d;
@@ -132,7 +132,7 @@ fz_argv_from_wargv(int argc, wchar_t **wargv)
 	char **argv;
 	int i;
 
-	argv = Memento_label(calloc(argc, sizeof(char *)), "fz_argv");
+	argv = calloc(argc, sizeof(char *));
 	if (argv == NULL)
 	{
 		fprintf(stderr, "Out of memory while processing command line args!\n");
@@ -141,7 +141,7 @@ fz_argv_from_wargv(int argc, wchar_t **wargv)
 
 	for (i = 0; i < argc; i++)
 	{
-		argv[i] = Memento_label(fz_utf8_from_wchar(wargv[i]), "fz_arg");
+		argv[i] = fz_utf8_from_wchar(wargv[i]);
 		if (argv[i] == NULL)
 		{
 			fprintf(stderr, "Out of memory while processing command line args!\n");

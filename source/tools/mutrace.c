@@ -23,9 +23,9 @@ static void usage(void)
 	exit(1);
 }
 
-static float layout_w = FZ_DEFAULT_LAYOUT_W;
-static float layout_h = FZ_DEFAULT_LAYOUT_H;
-static float layout_em = FZ_DEFAULT_LAYOUT_EM;
+static float layout_w = 450;
+static float layout_h = 600;
+static float layout_em = 12;
 static char *layout_css = NULL;
 static int layout_use_doc_css = 1;
 
@@ -44,18 +44,18 @@ static void runpage(fz_context *ctx, fz_document *doc, int number)
 	fz_try(ctx)
 	{
 		page = fz_load_page(ctx, doc, number - 1);
-		mediabox = fz_bound_page(ctx, page);
+		fz_bound_page(ctx, page, &mediabox);
 		printf("<page number=\"%d\" mediabox=\"%g %g %g %g\">\n",
 				number, mediabox.x0, mediabox.y0, mediabox.x1, mediabox.y1);
 		dev = fz_new_trace_device(ctx, fz_stdout(ctx));
 		if (use_display_list)
 		{
 			list = fz_new_display_list_from_page(ctx, page);
-			fz_run_display_list(ctx, list, dev, fz_identity, fz_infinite_rect, NULL);
+			fz_run_display_list(ctx, list, dev, &fz_identity, NULL, NULL);
 		}
 		else
 		{
-			fz_run_page(ctx, page, dev, fz_identity, NULL);
+			fz_run_page(ctx, page, dev, &fz_identity, NULL);
 		}
 		printf("</page>\n");
 	}
