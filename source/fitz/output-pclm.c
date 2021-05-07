@@ -10,15 +10,6 @@ const char *fz_pclm_write_options_usage =
 	"\tstrip-height=N: Strip height (default 16)\n"
 	"\n";
 
-/*
-	Parse PCLm options.
-
-	Currently defined options and values are as follows:
-
-		compression=none: No compression
-		compression=flate: Flate compression
-		strip-height=n: Strip height (default 16)
-*/
 fz_pclm_options *
 fz_parse_pclm_options(fz_context *ctx, fz_pclm_options *opts, const char *args)
 {
@@ -128,9 +119,11 @@ pclm_write_header(fz_context *ctx, fz_band_writer *writer_, fz_colorspace *cs)
 		fz_throw(ctx, FZ_ERROR_GENERIC, "PCLm expected to be Grayscale or RGB");
 
 	fz_free(ctx, writer->stripbuf);
+	writer->stripbuf = NULL;
 	fz_free(ctx, writer->compbuf);
-	writer->stripbuf = Memento_label(fz_malloc(ctx, w * sh * n), "pclm_stripbuf");
-	writer->complen = fz_deflate_bound(ctx, w * sh * n);
+	writer->compbuf = NULL;
+	writer->stripbuf = Memento_label(fz_malloc(ctx, (size_t)w * sh * n), "pclm_stripbuf");
+	writer->complen = fz_deflate_bound(ctx, (size_t)w * sh * n);
 	writer->compbuf = Memento_label(fz_malloc(ctx, writer->complen), "pclm_compbuf");
 
 	/* Send the file header on the first page */
@@ -195,7 +188,7 @@ flush_strip(fz_context *ctx, pclm_band_writer *writer, int fill)
 	fz_output *out = writer->super.out;
 	int w = writer->super.w;
 	int n = writer->super.n;
-	size_t len = w*n*fill;
+	size_t len = (size_t)w*n*fill;
 
 	/* Buffer is full, compress it and write it. */
 	if (writer->options.compress)
@@ -229,7 +222,9 @@ pclm_write_band(fz_context *ctx, fz_band_writer *writer_, int stride, int band_s
 	for (line = 0; line < band_height; line++)
 	{
 		int dstline = (band_start+line) % sh;
-		memcpy(writer->stripbuf + w*n*dstline, sp + line * w*n, w*n);
+		memcpy(writer->stripbuf + (size_t)w*n*dstline,
+			   sp + (size_t)line * w * n,
+			   (size_t)w * n);
 		if (dstline+1 == sh)
 			flush_strip(ctx, writer, dstline+1);
 	}
@@ -319,9 +314,7 @@ fz_save_pixmap_as_pclm(fz_context *ctx, fz_pixmap *pixmap, char *filename, int a
 
 /* High-level document writer interface */
 
-typedef struct fz_pclm_writer_s fz_pclm_writer;
-
-struct fz_pclm_writer_s
+typedef struct
 {
 	fz_document_writer super;
 	fz_draw_options draw;
@@ -330,7 +323,7 @@ struct fz_pclm_writer_s
 	fz_band_writer *bander;
 	fz_output *out;
 	int pagenum;
-};
+} fz_pclm_writer;
 
 static fz_device *
 pclm_begin_page(fz_context *ctx, fz_document_writer *wri_, fz_rect mediabox)

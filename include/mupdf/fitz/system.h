@@ -8,7 +8,7 @@
 #endif
 #endif
 
-/*
+/**
 	Include the standard libc headers.
 */
 
@@ -44,7 +44,7 @@ typedef unsigned __int64 uint64_t;
 #define FZ_SQRT2 1.41421356f
 #define FZ_LN2 0.69314718f
 
-/*
+/**
 	Spot architectures where we have optimisations.
 */
 
@@ -54,7 +54,7 @@ typedef unsigned __int64 uint64_t;
 #endif
 #endif
 
-/*
+/**
 	Some differences in libc can be smoothed over
 */
 
@@ -75,22 +75,22 @@ typedef unsigned __int64 uint64_t;
 #define HAVE_SIGSETJMP 0
 #endif
 
-/*
-	Where possible (i.e. on platforms on which they are provided), use
-	sigsetjmp/siglongjmp in preference to setjmp/longjmp. We don't alter
-	signal handlers within mupdf, so there is no need for us to
-	store/restore them - hence we use the non-restoring variants. This
-	makes a large speed difference on MacOSX (and probably other
-	platforms too.
+/**
+	Where possible (i.e. on platforms on which they are provided),
+	use sigsetjmp/siglongjmp in preference to setjmp/longjmp. We
+	don't alter signal handlers within mupdf, so there is no need
+	for us to store/restore them - hence we use the non-restoring
+	variants. This makes a large speed difference on MacOSX (and
+	probably other platforms too.
 */
 #if HAVE_SIGSETJMP
 #define fz_setjmp(BUF) sigsetjmp(BUF, 0)
 #define fz_longjmp(BUF,VAL) siglongjmp(BUF, VAL)
-#define fz_jmp_buf sigjmp_buf
+typedef sigjmp_buf fz_jmp_buf;
 #else
 #define fz_setjmp(BUF) setjmp(BUF)
 #define fz_longjmp(BUF,VAL) longjmp(BUF,VAL)
-#define fz_jmp_buf jmp_buf
+typedef jmp_buf fz_jmp_buf;
 #endif
 
 /* these constants mirror the corresponding macros in stdio.h */
@@ -158,7 +158,8 @@ void fz_free_argv(int argc, char **argv);
 #define S_ISDIR(mode) ((mode) & S_IFDIR)
 #endif
 
-/* inline is standard in C++. For some compilers we can enable it within C too. */
+/* inline is standard in C++. For some compilers we can enable it within
+ * C too. */
 
 #ifndef __cplusplus
 #if defined (__STDC_VERSION_) && (__STDC_VERSION__ >= 199901L) /* C99 */
@@ -193,7 +194,8 @@ void fz_free_argv(int argc, char **argv);
 #endif
 #endif
 
-/* Flag unused parameters, for use with 'static inline' functions in headers. */
+/* Flag unused parameters, for use with 'static inline' functions in
+ * headers. */
 #if defined(__GNUC__) && (__GNUC__ > 2 || __GNUC__ == 2 && __GNUC_MINOR__ >= 7)
 #define FZ_UNUSED __attribute__((__unused__))
 #else
@@ -217,8 +219,8 @@ void fz_free_argv(int argc, char **argv);
 
 /* If we're compiling as thumb code, then we need to tell the compiler
  * to enter and exit ARM mode around our assembly sections. If we move
- * the ARM functions to a separate file and arrange for it to be compiled
- * without thumb mode, we can save some time on entry.
+ * the ARM functions to a separate file and arrange for it to be
+ * compiled without thumb mode, we can save some time on entry.
  */
 /* This is slightly suboptimal; __thumb__ and __thumb2__ become defined
  * and undefined by #pragma arm/#pragma thumb - but we can't define a
@@ -233,10 +235,47 @@ void fz_free_argv(int argc, char **argv);
 
 #endif
 
+/* Memory block alignment */
+
+/* Most architectures are happy with blocks being aligned to the size
+ * of void *'s. Some (notably sparc) are not.
+ *
+ * Some architectures (notably amd64) are happy for pointers to be 32bit
+ * aligned even on 64bit systems. By making use of this we can save lots
+ * of memory in data structures (notably the display list).
+ *
+ * We attempt to cope with these vagaries via the following definitions.
+ */
+
+/* All blocks allocated by mupdf's allocators are expected to be
+ * returned aligned to FZ_MEMORY_BLOCK_ALIGN_MOD. This is sizeof(void *)
+ * unless overwritten by a predefinition, or by a specific architecture
+ * being detected. */
+#ifndef FZ_MEMORY_BLOCK_ALIGN_MOD
+#if defined(sparc) || defined(__sparc) || defined(__sparc__)
+#define FZ_MEMORY_BLOCK_ALIGN_MOD 8
+#else
+#define FZ_MEMORY_BLOCK_ALIGN_MOD sizeof(void *)
+#endif
+#endif
+
+/* MuPDF will ensure that its use of pointers in packed structures
+ * (such as the display list) will be aligned to FZ_POINTER_ALIGN_MOD.
+ * This is the same as FZ_MEMORY_BLOCK_ALIGN_MOD unless overridden by
+ * a predefinition, or by a specific architecture being detected. */
+#ifndef FZ_POINTER_ALIGN_MOD
+#if defined(__amd64) || defined(__amd64__) || defined(__x86_64) || defined(__x86_64__)
+#define FZ_POINTER_ALIGN_MOD 4
+#else
+#define FZ_POINTER_ALIGN_MOD FZ_MEMORY_BLOCK_ALIGN_MOD
+#endif
+#endif
+
 #ifdef CLUSTER
-/* Include this first so our defines don't clash with the system definitions */
+/* Include this first so our defines don't clash with the system
+ * definitions */
 #include <math.h>
-/*
+/**
  * Trig functions
  */
 static float

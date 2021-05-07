@@ -1,27 +1,23 @@
 #include "mupdf/fitz.h"
-#include "fitz-imp.h"
 
 #include <string.h>
 #include <assert.h>
 
 /*
-Simple hashtable with open addressing linear probe.
-Unlike text book examples, removing entries works
-correctly in this implementation, so it won't start
-exhibiting bad behaviour if entries are inserted
-and removed frequently.
+	Simple hashtable with open addressing linear probe.
+	Unlike text book examples, removing entries works
+	correctly in this implementation, so it won't start
+	exhibiting bad behaviour if entries are inserted
+	and removed frequently.
 */
 
-enum { MAX_KEY_LEN = 48 };
-typedef struct fz_hash_entry_s fz_hash_entry;
-
-struct fz_hash_entry_s
+typedef struct
 {
-	unsigned char key[MAX_KEY_LEN];
+	unsigned char key[FZ_HASH_TABLE_KEY_LENGTH];
 	void *val;
-};
+} fz_hash_entry;
 
-struct fz_hash_table_s
+struct fz_hash_table
 {
 	int keylen;
 	int size;
@@ -52,7 +48,8 @@ fz_new_hash_table(fz_context *ctx, int initialsize, int keylen, int lock, fz_has
 {
 	fz_hash_table *table;
 
-	assert(keylen <= MAX_KEY_LEN);
+	if (keylen > FZ_HASH_TABLE_KEY_LENGTH)
+		fz_throw(ctx, FZ_ERROR_GENERIC, "hash table key length too large");
 
 	table = fz_malloc_struct(ctx, fz_hash_table);
 	table->keylen = keylen;
@@ -122,10 +119,6 @@ do_hash_insert(fz_context *ctx, fz_hash_table *table, const void *key, void *val
 		if (memcmp(key, ents[pos].key, table->keylen) == 0)
 		{
 			/* This is legal, but should rarely happen. */
-			if (val != ents[pos].val)
-				fz_warn(ctx, "assert: overwrite hash slot with different value!");
-			else
-				fz_warn(ctx, "assert: overwrite hash slot with same value");
 			return ents[pos].val;
 		}
 
@@ -221,7 +214,7 @@ fz_hash_insert(fz_context *ctx, fz_hash_table *table, const void *key, void *val
 }
 
 static void
-do_removal(fz_context *ctx, fz_hash_table *table, const void *key, unsigned hole)
+do_removal(fz_context *ctx, fz_hash_table *table, unsigned hole)
 {
 	fz_hash_entry *ents = table->ents;
 	unsigned size = table->size;
@@ -276,7 +269,7 @@ fz_hash_remove(fz_context *ctx, fz_hash_table *table, const void *key)
 
 		if (memcmp(key, ents[pos].key, table->keylen) == 0)
 		{
-			do_removal(ctx, table, key, pos);
+			do_removal(ctx, table, pos);
 			return;
 		}
 
@@ -293,4 +286,22 @@ fz_hash_for_each(fz_context *ctx, fz_hash_table *table, void *state, fz_hash_tab
 	for (i = 0; i < table->size; ++i)
 		if (table->ents[i].val)
 			callback(ctx, state, table->ents[i].key, table->keylen, table->ents[i].val);
+}
+
+void
+fz_hash_filter(fz_context *ctx, fz_hash_table *table, void *state, fz_hash_table_filter_fn *callback)
+{
+	int i;
+restart:
+	for (i = 0; i < table->size; ++i)
+	{
+		if (table->ents[i].val)
+		{
+			if (callback(ctx, state, table->ents[i].key, table->keylen, table->ents[i].val))
+			{
+				do_removal(ctx, table, i);
+				goto restart; /* we may have moved some slots around, so just restart the scan */
+			}
+		}
+	}
 }

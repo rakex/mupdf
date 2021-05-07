@@ -1,6 +1,5 @@
 #include "pdfapp.h"
 #include "curl_stream.h"
-#include "mupdf/helpers/pkcs7-check.h"
 #include "mupdf/helpers/pkcs7-openssl.h"
 
 #include <string.h>
@@ -41,24 +40,6 @@ stat_mtime(const char *path)
 	return info.st_mtime;
 }
 
-#ifdef _WIN32
-static const char *
-realpath(const char *path, char buf[PATH_MAX])
-{
-	wchar_t wpath[PATH_MAX];
-	wchar_t wbuf[PATH_MAX];
-	int i;
-	MultiByteToWideChar(CP_UTF8, 0, path, -1, wpath, PATH_MAX);
-	GetFullPathNameW(wpath, PATH_MAX, wbuf, NULL);
-	WideCharToMultiByte(CP_UTF8, 0, wbuf, -1, buf, PATH_MAX, NULL, NULL);
-	for (i=0; buf[i]; ++i)
-		if (buf[i] == '\\')
-			buf[i] = '/';
-	return buf;
-}
-
-#endif
-
 static int convert_to_accel_path(fz_context *ctx, char outname[], char *absname, size_t len)
 {
 	char *tmpdir;
@@ -90,7 +71,7 @@ static int convert_to_accel_path(fz_context *ctx, char outname[], char *absname,
 static int get_accelerator_filename(fz_context *ctx, char outname[], size_t len, const char *filename)
 {
 	char absname[PATH_MAX];
-	if (!realpath(filename, absname))
+	if (!fz_realpath(filename, absname))
 		return 0;
 	if (!convert_to_accel_path(ctx, outname, absname, len))
 		return 0;
@@ -181,7 +162,7 @@ char *pdfapp_version(pdfapp_t *app)
 {
 	return
 		"MuPDF " FZ_VERSION "\n"
-		"Copyright 2006-2017 Artifex Software, Inc.\n";
+		"Copyright 2006-2020 Artifex Software, Inc.\n";
 }
 
 char *pdfapp_usage(pdfapp_t *app)
@@ -699,6 +680,8 @@ static int pdfapp_save(pdfapp_t *app)
 			}
 			fz_catch(app->ctx)
 			{
+				/* Ignore any error, so we drop out with
+				 * failure below. */
 			}
 
 			if (written)
@@ -993,7 +976,7 @@ static void pdfapp_showpage(pdfapp_t *app, int loadpage, int drawpage, int repai
 		sprintf(buf2, " - %d/%d (%g dpi)",
 				app->pageno, app->pagecount, app->resolution);
 		len = MAX_TITLE-strlen(buf2);
-		if (strlen(app->doctitle) > len)
+		if (strlen(app->doctitle) >= len)
 		{
 			fz_strlcpy(buf, app->doctitle, len-3);
 			fz_strlcat(buf, "...", MAX_TITLE);
@@ -1049,7 +1032,7 @@ static void pdfapp_showpage(pdfapp_t *app, int loadpage, int drawpage, int repai
 			cookie.errors++;
 	}
 
-	if (transition)
+	if (transition && drawpage)
 	{
 		app->new_image = app->image;
 		app->image = NULL;
@@ -1067,7 +1050,7 @@ static void pdfapp_showpage(pdfapp_t *app, int loadpage, int drawpage, int repai
 		app->duration = 0;
 		fz_page_presentation(app->ctx, app->page, &app->transition, &app->duration);
 		if (app->duration == 0)
-			app->duration = 5;
+			app->duration = app->presentation_time_in_seconds;
 		app->in_transit = fz_generate_transition(app->ctx, app->image, app->old_image, app->new_image, 0, &app->transition);
 		if (!app->in_transit)
 		{
@@ -1562,6 +1545,7 @@ void pdfapp_onkey(pdfapp_t *app, int c, int modifiers)
 
 	case 'p':
 		app->presentation_mode = !app->presentation_mode;
+		app->presentation_time_in_seconds = (app->numberlen > 0) ? atoi(app->number) : 5;
 		break;
 
 	/*

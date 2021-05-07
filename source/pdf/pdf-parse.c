@@ -2,6 +2,13 @@
 #include "mupdf/pdf.h"
 
 #include <string.h>
+#include <time.h>
+
+#ifdef _WIN32
+#define timegm _mkgmtime
+#endif
+
+#define isdigit(c) (c >= '0' && c <= '9')
 
 fz_rect
 pdf_to_rect(fz_context *ctx, pdf_obj *array)
@@ -54,6 +61,117 @@ pdf_to_matrix(fz_context *ctx, pdf_obj *array)
 		m.f = pdf_array_get_real(ctx, array, 5);
 		return m;
 	}
+}
+
+int64_t
+pdf_to_date(fz_context *ctx, pdf_obj *time)
+{
+	const char *s = pdf_to_str_buf(ctx, time);
+	int tz_sign, tz_hour, tz_min, tz_adj;
+	struct tm tm;
+	time_t utc;
+
+	if (!s[0])
+		return -1;
+
+	memset(&tm, 0, sizeof tm);
+	tm.tm_mday = 1;
+
+	tz_sign = 1;
+	tz_hour = 0;
+	tz_min = 0;
+
+	if (s[0] == 'D' && s[1] == ':')
+		s += 2;
+
+	if (!isdigit(s[0]) || !isdigit(s[1]) || !isdigit(s[2]) || !isdigit(s[3]))
+	{
+		fz_warn(ctx, "invalid date format (missing year)");
+		return -1;
+	}
+	tm.tm_year = (s[0]-'0')*1000 + (s[1]-'0')*100 + (s[2]-'0')*10 + (s[3]-'0') - 1900;
+	s += 4;
+
+	if (tm.tm_year < 70)
+	{
+		fz_warn(ctx, "invalid date (year out of range)");
+		return -1;
+	}
+
+	if (isdigit(s[0]) && isdigit(s[1]))
+	{
+		tm.tm_mon = (s[0]-'0')*10 + (s[1]-'0') - 1; /* month is 0-11 in struct tm */
+		s += 2;
+		if (isdigit(s[0]) && isdigit(s[1]))
+		{
+			tm.tm_mday = (s[0]-'0')*10 + (s[1]-'0');
+			s += 2;
+			if (isdigit(s[0]) && isdigit(s[1]))
+			{
+				tm.tm_hour = (s[0]-'0')*10 + (s[1]-'0');
+				s += 2;
+				if (isdigit(s[0]) && isdigit(s[1]))
+				{
+					tm.tm_min = (s[0]-'0')*10 + (s[1]-'0');
+					s += 2;
+					if (isdigit(s[0]) && isdigit(s[1]))
+					{
+						tm.tm_sec = (s[0]-'0')*10 + (s[1]-'0');
+						s += 2;
+					}
+				}
+			}
+		}
+	}
+
+	if (tm.tm_sec > 60 || tm.tm_min > 59 || tm.tm_hour > 23 || tm.tm_mday > 31 || tm.tm_mon > 11)
+	{
+		fz_warn(ctx, "invalid date (a field is out of range)");
+		return -1;
+	}
+
+	if (s[0] == 'Z')
+	{
+		s += 1;
+	}
+	else if ((s[0] == '-' || s[0] == '+') && isdigit(s[1]) && isdigit(s[2]))
+	{
+		tz_sign = (s[0] == '-') ? -1 : 1;
+		tz_hour = (s[1]-'0')*10 + (s[2]-'0');
+		s += 3;
+		if (s[0] == '\'' && isdigit(s[1]) && isdigit(s[2]))
+		{
+			tz_min = (s[1]-'0')*10 + (s[2]-'0');
+			s += 3;
+			if (s[0] == '\'')
+				s += 1;
+		}
+	}
+
+	/* PDF is based on ISO/IEC 8824 which limits time zones from -15 to +16. */
+	if (tz_sign < 0 && (tz_hour > 15 || (tz_hour == 15 && tz_min > 0)))
+	{
+		fz_warn(ctx, "invalid date format (time zone out of range)");
+		return -1;
+	}
+	if (tz_sign > 0 && (tz_hour > 16 || (tz_hour == 16 && tz_min > 0)))
+	{
+		fz_warn(ctx, "invalid date format (time zone out of range)");
+		return -1;
+	}
+
+	if (s[0] != 0)
+		fz_warn(ctx, "invalid date format (garbage at end)");
+
+	utc = timegm(&tm);
+	if (utc == (time_t)-1)
+	{
+		fz_warn(ctx, "date overflow error");
+		return -1;
+	}
+
+	tz_adj = tz_sign * (tz_hour * 3600 + tz_min * 60);
+	return utc - tz_adj;
 }
 
 static int
@@ -127,7 +245,21 @@ skip_language_code_utf8(const unsigned char *s, size_t n, size_t i)
 	return 0;
 }
 
-/* Convert Unicode/PdfDocEncoding string into utf-8 */
+static int
+is_valid_utf8(const unsigned char *s, const unsigned char *end)
+{
+	for (; s < end; ++s)
+	{
+		int skip = *s < 0x80 ? 0 : *s < 0xC0 ? -1 : *s < 0xE0 ? 1 : *s < 0xF0 ? 2 : *s < 0xF5 ? 3 : -1;
+		if (skip == -1)
+			return 0;
+		while (skip-- > 0)
+			if (++s >= end || (*s & 0xC0) != 0x80)
+				return 0;
+	}
+	return 1;
+}
+
 char *
 pdf_new_utf8_from_pdf_string(fz_context *ctx, const char *ssrcptr, size_t srclen)
 {
@@ -230,6 +362,14 @@ pdf_new_utf8_from_pdf_string(fz_context *ctx, const char *ssrcptr, size_t srclen
 		}
 	}
 
+	/* Detect UTF-8 strings that aren't marked with a BOM */
+	else if (is_valid_utf8(srcptr, srcptr + srclen))
+	{
+		dst = Memento_label(fz_malloc(ctx, srclen + 1), "utf8_from_guess");
+		memcpy(dst, srcptr, srclen);
+		dstptr = dst + srclen;
+	}
+
 	/* PDFDocEncoding */
 	else
 	{
@@ -249,7 +389,6 @@ pdf_new_utf8_from_pdf_string(fz_context *ctx, const char *ssrcptr, size_t srclen
 	return dst;
 }
 
-/* Convert text string object to UTF-8 */
 char *
 pdf_new_utf8_from_pdf_string_obj(fz_context *ctx, pdf_obj *src)
 {
@@ -259,7 +398,6 @@ pdf_new_utf8_from_pdf_string_obj(fz_context *ctx, pdf_obj *src)
 	return pdf_new_utf8_from_pdf_string(ctx, srcptr, srclen);
 }
 
-/* Load text stream and convert to UTF-8 */
 char *
 pdf_new_utf8_from_pdf_stream_obj(fz_context *ctx, pdf_obj *src)
 {
@@ -279,7 +417,6 @@ pdf_new_utf8_from_pdf_stream_obj(fz_context *ctx, pdf_obj *src)
 	return dst;
 }
 
-/* Load text stream or text string and convert to UTF-8 */
 char *
 pdf_load_stream_or_string_as_utf8(fz_context *ctx, pdf_obj *src)
 {
@@ -336,10 +473,6 @@ pdf_new_text_string_utf16be(fz_context *ctx, const char *s)
 	return obj;
 }
 
-/*
- * Create a PDF 'text string' by encoding input string as either ASCII or UTF-16BE.
- * In theory, we could also use PDFDocEncoding.
- */
 pdf_obj *
 pdf_new_text_string(fz_context *ctx, const char *s)
 {
@@ -616,6 +749,12 @@ pdf_parse_ind_obj(fz_context *ctx, pdf_document *doc,
 		fz_throw(ctx, FZ_ERROR_SYNTAX, "expected generation number (%d ? obj)", num);
 	}
 	gen = buf->i;
+	if (gen < 0 || gen >= 65536)
+	{
+		if (try_repair)
+			*try_repair = 1;
+		fz_throw(ctx, FZ_ERROR_SYNTAX, "invalid generation number (%d)", gen);
+	}
 
 	tok = pdf_lex(ctx, file, buf);
 	if (tok != PDF_TOK_OBJ)

@@ -1,15 +1,13 @@
 #include "mupdf/fitz.h"
 #include "mupdf/pdf.h"
 
-typedef struct pdf_output_processor_s pdf_output_processor;
-
-struct pdf_output_processor_s
+typedef struct
 {
 	pdf_processor super;
 	fz_output *out;
 	int ahxencode;
 	int extgstate;
-};
+} pdf_output_processor;
 
 /* general graphics state */
 
@@ -63,26 +61,6 @@ pdf_out_ri(fz_context *ctx, pdf_processor *proc, const char *intent)
 	fz_output *out = ((pdf_output_processor*)proc)->out;
 	if (!((pdf_output_processor*)proc)->extgstate)
 		fz_write_printf(ctx, out, "%n ri\n", intent);
-}
-
-static void
-pdf_out_gs_OP(fz_context *ctx, pdf_processor *proc, int b)
-{
-}
-
-static void
-pdf_out_gs_op(fz_context *ctx, pdf_processor *proc, int b)
-{
-}
-
-static void
-pdf_out_gs_OPM(fz_context *ctx, pdf_processor *proc, int i)
-{
-}
-
-static void
-pdf_out_gs_UseBlackPtComp(fz_context *ctx, pdf_processor *proc, pdf_obj *name)
-{
 }
 
 static void
@@ -603,7 +581,7 @@ pdf_out_BI(fz_context *ctx, pdf_processor *proc, fz_image *img, const char *colo
 	else if (img->colorspace == fz_device_cmyk(ctx))
 		fz_write_string(ctx, out, "/CS/CMYK\n");
 	else if (colorspace)
-		fz_write_printf(ctx, out, "/CS%n/n", colorspace);
+		fz_write_printf(ctx, out, "/CS%n\n", colorspace);
 	else
 		fz_throw(ctx, FZ_ERROR_GENERIC, "BI operator can only show ImageMask, Gray, RGB, or CMYK images");
 	if (img->interpolate)
@@ -811,15 +789,6 @@ pdf_drop_output_processor(fz_context *ctx, pdf_processor *proc)
 	fz_drop_output(ctx, out);
 }
 
-/*
-	Create an output processor. This
-	sends the incoming PDF operator stream to an fz_output stream.
-
-	out: The output stream to which operators will be sent.
-
-	ahxencode: If 0, then image streams will be send as binary,
-	otherwise they will be asciihexencoded.
-*/
 pdf_processor *
 pdf_new_output_processor(fz_context *ctx, fz_output *out, int ahxencode)
 {
@@ -939,10 +908,10 @@ pdf_new_output_processor(fz_context *ctx, fz_output *out, int ahxencode)
 		proc->super.op_EX = pdf_out_EX;
 
 		/* extgstate */
-		proc->super.op_gs_OP = pdf_out_gs_OP;
-		proc->super.op_gs_op = pdf_out_gs_op;
-		proc->super.op_gs_OPM = pdf_out_gs_OPM;
-		proc->super.op_gs_UseBlackPtComp = pdf_out_gs_UseBlackPtComp;
+		proc->super.op_gs_OP = NULL;
+		proc->super.op_gs_op = NULL;
+		proc->super.op_gs_OPM = NULL;
+		proc->super.op_gs_UseBlackPtComp = NULL;
 	}
 
 	proc->out = out;
@@ -951,16 +920,6 @@ pdf_new_output_processor(fz_context *ctx, fz_output *out, int ahxencode)
 	return (pdf_processor*)proc;
 }
 
-/*
-	Create a buffer processor. This
-	collects the incoming PDF operator stream into an fz_buffer.
-
-	buffer: The (possibly empty) buffer to which operators will be
-	appended.
-
-	ahxencode: If 0, then image streams will be send as binary,
-	otherwise they will be asciihexencoded.
-*/
 pdf_processor *
 pdf_new_buffer_processor(fz_context *ctx, fz_buffer *buffer, int ahxencode)
 {

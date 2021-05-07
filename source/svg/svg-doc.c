@@ -1,13 +1,11 @@
 #include "mupdf/fitz.h"
 #include "svg-imp.h"
 
-typedef struct svg_page_s svg_page;
-
-struct svg_page_s
+typedef struct
 {
 	fz_page super;
 	svg_document *doc;
-};
+} svg_page;
 
 static void
 svg_drop_document(fz_context *ctx, fz_document *doc_)
@@ -57,7 +55,7 @@ svg_load_page(fz_context *ctx, fz_document *doc_, int chapter, int number)
 	if (number != 0)
 		fz_throw(ctx, FZ_ERROR_GENERIC, "cannot find page %d", number);
 
-	page = fz_new_derived_page(ctx, svg_page);
+	page = fz_new_derived_page(ctx, svg_page, doc_);
 	page->super.bound_page = svg_bound_page;
 	page->super.run_page_contents = svg_run_page;
 	page->super.drop_page = svg_drop_page;
@@ -126,7 +124,7 @@ svg_open_document_with_buffer(fz_context *ctx, fz_buffer *buf, const char *base_
 
 	fz_try(ctx)
 	{
-		doc->xml = fz_parse_xml(ctx, buf, 0, 0);
+		doc->xml = fz_parse_xml(ctx, buf, 0);
 		doc->root = fz_xml_root(doc->xml);
 		svg_build_id_map(ctx, doc, doc->root);
 	}
@@ -156,9 +154,6 @@ svg_open_document_with_stream(fz_context *ctx, fz_stream *file)
 	return doc;
 }
 
-/*
-	Parse an SVG document into a display-list.
-*/
 fz_display_list *
 fz_new_display_list_from_svg(fz_context *ctx, fz_buffer *buf, const char *base_uri, fz_archive *zip, float *w, float *h)
 {
@@ -180,9 +175,6 @@ fz_new_display_list_from_svg(fz_context *ctx, fz_buffer *buf, const char *base_u
 	return list;
 }
 
-/*
-	Parse an SVG document into a display-list.
-*/
 fz_display_list *
 fz_new_display_list_from_svg_xml(fz_context *ctx, fz_xml *xml, const char *base_uri, fz_archive *zip, float *w, float *h)
 {
@@ -204,9 +196,6 @@ fz_new_display_list_from_svg_xml(fz_context *ctx, fz_xml *xml, const char *base_
 	return list;
 }
 
-/*
-	Create a scalable image from an SVG document.
-*/
 fz_image *
 fz_new_image_from_svg(fz_context *ctx, fz_buffer *buf, const char *base_uri, fz_archive *zip)
 {
@@ -224,9 +213,6 @@ fz_new_image_from_svg(fz_context *ctx, fz_buffer *buf, const char *base_uri, fz_
 	return image;
 }
 
-/*
-	Create a scalable image from an SVG document.
-*/
 fz_image *
 fz_new_image_from_svg_xml(fz_context *ctx, fz_xml *xml, const char *base_uri, fz_archive *zip)
 {

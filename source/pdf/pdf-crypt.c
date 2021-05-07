@@ -12,15 +12,13 @@ enum
 	PDF_CRYPT_UNKNOWN,
 };
 
-typedef struct pdf_crypt_filter_s pdf_crypt_filter;
-
-struct pdf_crypt_filter_s
+typedef struct
 {
 	int method;
 	int length;
-};
+} pdf_crypt_filter;
 
-struct pdf_crypt_s
+struct pdf_crypt
 {
 	pdf_obj *id;
 
@@ -43,11 +41,6 @@ struct pdf_crypt_s
 };
 
 static void pdf_parse_crypt_filter(fz_context *ctx, pdf_crypt_filter *cf, pdf_crypt *crypt, pdf_obj *name);
-
-/*
- * Create crypt object for decrypting strings and streams
- * given the Encryption and ID objects.
- */
 
 pdf_crypt *
 pdf_new_crypt(fz_context *ctx, pdf_obj *dict, pdf_obj *id)
@@ -360,7 +353,8 @@ pdf_compute_encryption_key(fz_context *ctx, pdf_crypt *crypt, unsigned char *pas
 	if (pwlen > 32)
 		pwlen = 32;
 	memcpy(buf, password, pwlen);
-	memcpy(buf + pwlen, padding, 32 - pwlen);
+	if (pwlen < 32)
+		memcpy(buf + pwlen, padding, 32 - pwlen);
 
 	/* Step 2 - init md5 and pass value of step 1 */
 	fz_md5_init(&md5);
@@ -663,7 +657,8 @@ pdf_authenticate_owner_password(fz_context *ctx, pdf_crypt *crypt, unsigned char
 		if (pwlen > 32)
 			pwlen = 32;
 		memcpy(pwbuf, ownerpass, pwlen);
-		memcpy(pwbuf + pwlen, padding, 32 - pwlen);
+		if (pwlen < 32)
+			memcpy(pwbuf + pwlen, padding, 32 - pwlen);
 
 		fz_md5_init(&md5);
 		fz_md5_update(&md5, pwbuf, 32);
@@ -688,7 +683,8 @@ pdf_authenticate_owner_password(fz_context *ctx, pdf_crypt *crypt, unsigned char
 		if (pwlen > 32)
 			pwlen = 32;
 		memcpy(pwbuf, ownerpass, pwlen);
-		memcpy(pwbuf + pwlen, padding, 32 - pwlen);
+		if (pwlen < 32)
+			memcpy(pwbuf + pwlen, padding, 32 - pwlen);
 
 		fz_md5_init(&md5);
 		fz_md5_update(&md5, pwbuf, 32);
@@ -755,17 +751,6 @@ static void pdf_saslprep_from_utf8(char *password, const char *utf8, int n)
 	fz_strlcpy(password, utf8, n);
 }
 
-/*
-	Attempt to authenticate a
-	password.
-
-	Returns 0 for failure, non-zero for success.
-
-	In the non-zero case:
-		bit 0 set => no password required
-		bit 1 set => user password authenticated
-		bit 2 set => owner password authenticated
-*/
 int
 pdf_authenticate_password(fz_context *ctx, pdf_document *doc, const char *pwd_utf8)
 {
@@ -860,7 +845,8 @@ pdf_compute_owner_password(fz_context *ctx, pdf_crypt *crypt, unsigned char *opa
 	if (opwlen > 32)
 		opwlen = 32;
 	memcpy(obuf, opassword, opwlen);
-	memcpy(obuf + opwlen, padding, 32 - opwlen);
+	if (opwlen < 32)
+		memcpy(obuf + opwlen, padding, 32 - opwlen);
 
 	/* Step 2 - init md5 and pass value of step 1 */
 	fz_md5_init(&md5);
@@ -885,7 +871,8 @@ pdf_compute_owner_password(fz_context *ctx, pdf_crypt *crypt, unsigned char *opa
 	if (upwlen > 32)
 		upwlen = 32;
 	memcpy(ubuf, upassword, upwlen);
-	memcpy(ubuf + upwlen, padding, 32 - upwlen);
+	if (upwlen < 32)
+		memcpy(ubuf + upwlen, padding, 32 - upwlen);
 
 	/* Step 6 - encrypt user password md5 hash */
 	fz_arc4_encrypt(&arc4, digest, ubuf, 32);
@@ -1068,6 +1055,14 @@ pdf_compute_object_key(pdf_crypt *crypt, pdf_crypt_filter *cf, int num, int gen,
  * indirect references.
  */
 
+static int is_signature(fz_context *ctx, pdf_obj *obj)
+{
+	if (pdf_dict_get(ctx, obj, PDF_NAME(Type)) == PDF_NAME(Sig))
+		if (pdf_dict_get(ctx, obj, PDF_NAME(Contents)) && pdf_dict_get(ctx, obj, PDF_NAME(ByteRange)) && pdf_dict_get(ctx, obj, PDF_NAME(Filter)))
+			return 1;
+	return 0;
+}
+
 static void
 pdf_crypt_obj_imp(fz_context *ctx, pdf_crypt *crypt, pdf_obj *obj, unsigned char *key, int keylen)
 {
@@ -1128,6 +1123,9 @@ pdf_crypt_obj_imp(fz_context *ctx, pdf_crypt *crypt, pdf_obj *obj, unsigned char
 		int n = pdf_dict_len(ctx, obj);
 		for (i = 0; i < n; i++)
 		{
+			if (pdf_dict_get_key(ctx, obj, i) == PDF_NAME(Contents) && is_signature(ctx, obj))
+				continue;
+
 			pdf_crypt_obj_imp(ctx, crypt, pdf_dict_get_val(ctx, obj, i), key, keylen);
 		}
 	}
@@ -1242,6 +1240,7 @@ void pdf_encrypt_data(fz_context *ctx, pdf_crypt *crypt, int num, int gen, void 
 
 	if (crypt->strf.method == PDF_CRYPT_AESV2 || crypt->strf.method == PDF_CRYPT_AESV3)
 	{
+		size_t len = 0;
 		fz_aes aes;
 		unsigned char iv[16];
 
@@ -1257,7 +1256,7 @@ void pdf_encrypt_data(fz_context *ctx, pdf_crypt *crypt, int num, int gen, void 
 
 		while (n > 0)
 		{
-			size_t len = n;
+			len = n;
 			if (len > 16)
 				len = 16;
 			memcpy(buffer, s, len);
@@ -1265,10 +1264,10 @@ void pdf_encrypt_data(fz_context *ctx, pdf_crypt *crypt, int num, int gen, void 
 				memset(&buffer[len], 16-(int)len, 16-len);
 			fz_aes_crypt_cbc(&aes, FZ_AES_ENCRYPT, 16, iv, buffer, buffer+16);
 			write_data(ctx, arg, buffer+16, 16);
-			s += 16;
-			n -= 16;
+			s += len;
+			n -= len;
 		}
-		if (n == 0) {
+		if (len == 16) {
 			memset(buffer, 16, 16);
 			fz_aes_crypt_cbc(&aes, FZ_AES_ENCRYPT, 16, iv, buffer, buffer+16);
 			write_data(ctx, arg, buffer+16, 16);

@@ -1,5 +1,8 @@
 #include "mupdf/fitz.h"
+
+#include "color-imp.h"
 #include "draw-imp.h"
+#include "pixmap-imp.h"
 
 #include <assert.h>
 #include <math.h>
@@ -59,14 +62,12 @@ static void paint_scan(fz_pixmap *FZ_RESTRICT pix, int y, int fx0, int fx1, int 
 	while (--w);
 }
 
-typedef struct edge_data_s edge_data;
-
-struct edge_data_s
+typedef struct
 {
 	float x;
 	float dx;
 	int v[2*MAXN];
-};
+} edge_data;
 
 static inline void prepare_edge(const float *FZ_RESTRICT vtop, const float *FZ_RESTRICT vbot, edge_data *FZ_RESTRICT edge, float y, int n)
 {
@@ -179,7 +180,12 @@ prepare_mesh_vertex(fz_context *ctx, void *arg, fz_vertex *v, const float *input
 	int i;
 
 	if (shade->use_function)
-		output[0] = input[0] * 255;
+	{
+		float f = input[0];
+		if (shade->type >= 4 && shade->type <= 7)
+			f = (f - shade->u.m.c0[0]) / (shade->u.m.c1[0] - shade->u.m.c0[0]);
+		output[0] = f * 255;
+	}
 	else
 	{
 		int n = fz_colorspace_n(ctx, dest->colorspace);
@@ -211,25 +217,6 @@ do_paint_tri(fz_context *ctx, void *arg, fz_vertex *av, fz_vertex *bv, fz_vertex
 	fz_paint_triangle(dest, vertices, 2 + dest->n - dest->alpha, ptd->bbox);
 }
 
-/*
-	Render a shade to a given pixmap.
-
-	shade: The shade to paint.
-
-	override_cs: NULL, or colorspace to override the shades
-	inbuilt colorspace.
-
-	ctm: The transform to apply.
-
-	dest: The pixmap to render into.
-
-	color_params: The color rendering settings
-
-	bbox: Pointer to a bounding box to limit the rendering
-	of the shade.
-
-	op: NULL, or pointer to overprint bitmap.
-*/
 void
 fz_paint_shade(fz_context *ctx, fz_shade *shade, fz_colorspace *colorspace, fz_matrix ctm, fz_pixmap *dest, fz_color_params color_params, fz_irect bbox, const fz_overprint *eop)
 {
@@ -310,8 +297,8 @@ fz_paint_shade(fz_context *ctx, fz_shade *shade, fz_colorspace *colorspace, fz_m
 							*d++ = fz_clampi(255 * f[k], 0, 255);
 						*d++ = a;
 					}
-					d += conv->stride - conv->w * conv->n;
-					s += temp->stride - temp->w * temp->n;
+					d += conv->stride - conv->w * (size_t)conv->n;
+					s += temp->stride - temp->w * (size_t)temp->n;
 				}
 				fz_drop_pixmap(ctx, temp);
 				temp = conv;
@@ -372,8 +359,8 @@ fz_paint_shade(fz_context *ctx, fz_shade *shade, fz_colorspace *colorspace, fz_m
 						if (da)
 							*d++ = a;
 					}
-					d += conv->stride - conv->w * conv->n;
-					s += temp->stride - temp->w * temp->n;
+					d += conv->stride - conv->w * (size_t)conv->n;
+					s += temp->stride - temp->w * (size_t)temp->n;
 				}
 			}
 			fz_paint_pixmap_with_overprint(dest, conv, eop);

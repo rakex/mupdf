@@ -1,5 +1,7 @@
 #include "mupdf/fitz.h"
 
+#include "color-imp.h"
+
 #if FZ_ENABLE_ICC
 
 #ifndef LCMS_USE_FLOAT
@@ -50,7 +52,7 @@ static void fz_unmultiply_row(fz_context *ctx, int n, int c, int w, unsigned cha
 	}
 }
 
-struct fz_icc_link_s
+struct fz_icc_link
 {
 	fz_storable storable;
 	void *handle;
@@ -312,7 +314,7 @@ fz_new_icc_link(fz_context *ctx,
 	}
 	fz_catch(ctx)
 	{
-		cmsDeleteTransform(GLO link);
+		cmsDeleteTransform(GLO transform);
 		fz_rethrow(ctx);
 	}
 	return link;
@@ -348,7 +350,7 @@ fz_icc_transform_color(fz_context *ctx, fz_color_converter *cc, const float *src
 }
 
 void
-fz_icc_transform_pixmap(fz_context *ctx, fz_icc_link *link, fz_pixmap *src, fz_pixmap *dst, int copy_spots)
+fz_icc_transform_pixmap(fz_context *ctx, fz_icc_link *link, const fz_pixmap *src, fz_pixmap *dst, int copy_spots)
 {
 	GLOINIT
 	int cmm_num_src, cmm_num_dst, cmm_extras;

@@ -1,10 +1,9 @@
 #include "mupdf/fitz.h"
 #include "mupdf/pdf.h"
-#include "../fitz/fitz-imp.h"
 
 #include <assert.h>
 
-struct pdf_graft_map_s
+struct pdf_graft_map
 {
 	int refs;
 	int len;
@@ -13,15 +12,6 @@ struct pdf_graft_map_s
 	int *dst_from_src;
 };
 
-/*
-	Prepare a graft map object to allow objects
-	to be deep copied from one document to the given one, avoiding
-	problems with duplicated child objects.
-
-	dst: The document to copy objects to.
-
-	Note: all the source objects must come from the same document.
-*/
 pdf_graft_map *
 pdf_new_graft_map(fz_context *ctx, pdf_document *dst)
 {
@@ -52,17 +42,6 @@ pdf_drop_graft_map(fz_context *ctx, pdf_graft_map *map)
 	}
 }
 
-/*
-	Return a deep copied object equivalent to the
-	supplied object, suitable for use within the given document.
-
-	dst: The document in which the returned object is to be used.
-
-	obj: The object deep copy.
-
-	Note: If grafting multiple objects, you should use a pdf_graft_map
-	to avoid potential duplication of target objects.
-*/
 pdf_obj *
 pdf_graft_object(fz_context *ctx, pdf_document *dst, pdf_obj *obj)
 {
@@ -86,19 +65,6 @@ pdf_graft_object(fz_context *ctx, pdf_document *dst, pdf_obj *obj)
 	return obj;
 }
 
-/*
-	Return a deep copied object equivalent
-	to the supplied object, suitable for use within the target
-	document of the map.
-
-	map: A map targeted at the document in which the returned
-	object is to be used.
-
-	obj: The object to be copied.
-
-	Note: Copying multiple objects via the same graft map ensures
-	that any shared children are not copied more than once.
-*/
 pdf_obj *
 pdf_graft_mapped_object(fz_context *ctx, pdf_graft_map *map, pdf_obj *obj)
 {
@@ -230,4 +196,73 @@ pdf_graft_mapped_object(fz_context *ctx, pdf_graft_map *map, pdf_obj *obj)
 		assert("This never happens" == NULL);
 		return NULL;
 	}
+}
+
+void pdf_graft_mapped_page(fz_context *ctx, pdf_graft_map *map, int page_to, pdf_document *src, int page_from)
+{
+	pdf_obj *page_ref;
+	pdf_obj *page_dict = NULL;
+	pdf_obj *obj;
+	pdf_obj *ref = NULL;
+	int i;
+	pdf_document *dst = map->dst;
+
+	/* Copy as few key/value pairs as we can. Do not include items that reference other pages. */
+	static pdf_obj * const copy_list[] = {
+		PDF_NAME(Contents),
+		PDF_NAME(Resources),
+		PDF_NAME(MediaBox),
+		PDF_NAME(CropBox),
+		PDF_NAME(BleedBox),
+		PDF_NAME(TrimBox),
+		PDF_NAME(ArtBox),
+		PDF_NAME(Rotate),
+		PDF_NAME(UserUnit)
+	};
+
+	fz_var(ref);
+	fz_var(page_dict);
+
+	fz_try(ctx)
+	{
+		page_ref = pdf_lookup_page_obj(ctx, src, page_from);
+
+		/* Make a new page object dictionary to hold the items we copy from the source page. */
+		page_dict = pdf_new_dict(ctx, dst, 4);
+
+		pdf_dict_put(ctx, page_dict, PDF_NAME(Type), PDF_NAME(Page));
+
+		for (i = 0; i < (int)nelem(copy_list); i++)
+		{
+			obj = pdf_dict_get_inheritable(ctx, page_ref, copy_list[i]);
+			if (obj != NULL)
+				pdf_dict_put_drop(ctx, page_dict, copy_list[i], pdf_graft_mapped_object(ctx, map, obj));
+		}
+
+		/* Add the page object to the destination document. */
+		ref = pdf_add_object(ctx, dst, page_dict);
+
+		/* Insert it into the page tree. */
+		pdf_insert_page(ctx, dst, page_to, ref);
+	}
+	fz_always(ctx)
+	{
+		pdf_drop_obj(ctx, page_dict);
+		pdf_drop_obj(ctx, ref);
+	}
+	fz_catch(ctx)
+	{
+		fz_rethrow(ctx);
+	}
+}
+
+void pdf_graft_page(fz_context *ctx, pdf_document *dst, int page_to, pdf_document *src, int page_from)
+{
+	pdf_graft_map *map = pdf_new_graft_map(ctx, dst);
+	fz_try(ctx)
+		pdf_graft_mapped_page(ctx, map, page_to, src, page_from);
+	fz_always(ctx)
+		pdf_drop_graft_map(ctx, map);
+	fz_catch(ctx)
+		fz_rethrow(ctx);
 }

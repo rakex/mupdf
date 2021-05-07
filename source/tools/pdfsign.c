@@ -4,7 +4,6 @@
 
 #include "mupdf/fitz.h"
 #include "mupdf/pdf.h"
-#include "mupdf/helpers/pkcs7-check.h"
 #include "mupdf/helpers/pkcs7-openssl.h"
 
 #include <string.h>
@@ -20,7 +19,7 @@ static int clear = 0;
 static int sign = 0;
 static int list = 1;
 
-static void usage(void)
+static int usage(void)
 {
 	fprintf(stderr,
 		"usage: mutool sign [options] input.pdf [signature object numbers]\n"
@@ -31,45 +30,63 @@ static void usage(void)
 		"\t-P -\tcertificate password\n"
 		"\t-o -\toutput file name\n"
 		   );
-	exit(1);
+	return 1;
 }
 
 static void verify_signature(fz_context *ctx, pdf_document *doc, pdf_obj *signature)
 {
-	char name[500];
+	char *name;
 	pdf_signature_error err;
+	pdf_pkcs7_verifier *verifier;
 	int edits;
+	pdf_pkcs7_designated_name *dn = NULL;
 
-	printf("verifying signature %d\n", pdf_to_num(ctx, signature));
+	printf("Verifying signature %d:\n", pdf_to_num(ctx, signature));
 
 	if (!pdf_signature_is_signed(ctx, doc, signature))
 	{
-		printf("  Signature is not signed\n");
+		printf("\tSignature is not signed.\n");
 		return;
 	}
 
-	pdf_signature_designated_name(ctx, doc, signature, name, sizeof name);
-	printf("  Designated name: %s\n", name);
-
-	err = pdf_check_certificate(ctx, doc, signature);
-	if (err)
-		printf("  Certificate error: %s\n", pdf_signature_error_description(err));
-	else
-		printf("  Certificate is trusted.\n");
-
+	verifier = pkcs7_openssl_new_verifier(ctx);
+	fz_var(dn);
 	fz_try(ctx)
 	{
-		err = pdf_check_digest(ctx, doc, signature);
+		dn = pdf_signature_get_signatory(ctx, verifier, doc, signature);
+		if (dn)
+		{
+			name = pdf_signature_format_designated_name(ctx, dn);
+			printf("\tDesignated name: %s\n", name);
+			fz_free(ctx, name);
+		}
+		else
+		{
+			printf("\tSignature information missing.\n");
+		}
+
+		err = pdf_check_certificate(ctx, verifier, doc, signature);
+		if (err)
+			printf("\tCertificate error: %s\n", pdf_signature_error_description(err));
+		else
+			printf("\tCertificate is trusted.\n");
+
+		err = pdf_check_digest(ctx, verifier, doc, signature);
 		edits = pdf_signature_incremental_change_since_signing(ctx, doc, signature);
 		if (err)
-			printf("  Digest error: %s\n", pdf_signature_error_description(err));
+			printf("\tDigest error: %s\n", pdf_signature_error_description(err));
 		else if (edits)
-			printf("  The signature is valid but there have been edits since signing.\n");
+			printf("\tThe signature is valid but there have been edits since signing.\n");
 		else
-			printf("  The document is unchanged since signing.\n");
+			printf("\tThe document is unchanged since signing.\n");
+	}
+	fz_always(ctx)
+	{
+		pdf_signature_drop_designated_name(ctx, dn);
+		pdf_drop_verifier(ctx, verifier);
 	}
 	fz_catch(ctx)
-		printf("  Digest error: %s\n", fz_caught_message(ctx));
+		printf("\tVerification error: %s\n", fz_caught_message(ctx));
 }
 
 static void clear_signature(fz_context *ctx, pdf_document *doc, pdf_obj *signature)
@@ -81,7 +98,7 @@ static void clear_signature(fz_context *ctx, pdf_document *doc, pdf_obj *signatu
 
 	fz_var(page);
 
-	printf("clearing signature %d\n", pdf_to_num(ctx, signature));
+	printf("Clearing signature %d.\n", pdf_to_num(ctx, signature));
 
 	fz_try(ctx)
 	{
@@ -109,7 +126,7 @@ static void sign_signature(fz_context *ctx, pdf_document *doc, pdf_obj *signatur
 	fz_var(page);
 	fz_var(signer);
 
-	printf("signing signature %d\n", pdf_to_num(ctx, signature));
+	printf("Signing signature %d.\n", pdf_to_num(ctx, signature));
 
 	fz_try(ctx)
 	{
@@ -120,13 +137,12 @@ static void sign_signature(fz_context *ctx, pdf_document *doc, pdf_obj *signatur
 		page = pdf_load_page(ctx, doc, pageno);
 		for (widget = pdf_first_widget(ctx, page); widget; widget = pdf_next_widget(ctx, widget))
 			if (pdf_widget_type(ctx, widget) == PDF_WIDGET_TYPE_SIGNATURE && !pdf_objcmp_resolve(ctx, widget->obj, signature))
-				pdf_sign_signature(ctx, widget, signer);
+				pdf_sign_signature(ctx, widget, signer, NULL);
 	}
 	fz_always(ctx)
 	{
 		fz_drop_page(ctx, (fz_page*)page);
-		if (signer)
-			signer->drop(signer);
+		pdf_drop_signer(ctx, signer);
 	}
 	fz_catch(ctx)
 		fz_rethrow(ctx);
@@ -135,9 +151,32 @@ static void sign_signature(fz_context *ctx, pdf_document *doc, pdf_obj *signatur
 
 static void list_signature(fz_context *ctx, pdf_document *doc, pdf_obj *signature)
 {
-	char name[500];
-	pdf_signature_designated_name(ctx, doc, signature, name, sizeof name);
-	printf("%5d: signature name: %s\n", pdf_to_num(ctx, signature), name);
+	pdf_pkcs7_designated_name *dn;
+	pdf_pkcs7_verifier *verifier;
+
+	if (!pdf_signature_is_signed(ctx, doc, signature))
+	{
+		printf("%5d: Signature is not signed.\n", pdf_to_num(ctx, signature));
+		return;
+	}
+
+	verifier = pkcs7_openssl_new_verifier(ctx);
+
+	dn = pdf_signature_get_signatory(ctx, verifier, doc, signature);
+	if (dn)
+	{
+		char *s = pdf_signature_format_designated_name(ctx, dn);
+		printf("%5d: Designated name: %s\n", pdf_to_num(ctx, signature), s);
+		fz_free(ctx, s);
+		pdf_signature_drop_designated_name(ctx, dn);
+	}
+	else
+	{
+		printf("%5d: Signature information missing.\n", pdf_to_num(ctx, signature));
+	}
+
+	pdf_drop_verifier(ctx, verifier);
+
 }
 
 static void process_field(fz_context *ctx, pdf_document *doc, pdf_obj *field)
@@ -167,8 +206,7 @@ static void process_field_hierarchy(fz_context *ctx, pdf_document *doc, pdf_obj 
 		for (i = 0; i < n; ++i)
 		{
 			pdf_obj *kid = pdf_array_get(ctx, kids, i);
-			if (pdf_dict_get_inheritable(ctx, field, PDF_NAME(FT)) == PDF_NAME(Sig))
-				process_field_hierarchy(ctx, doc, kid);
+			process_field_hierarchy(ctx, doc, kid);
 		}
 	}
 	else if (pdf_dict_get_inheritable(ctx, field, PDF_NAME(FT)) == PDF_NAME(Sig))
@@ -204,12 +242,12 @@ int pdfsign_main(int argc, char **argv)
 		case 'P': certificatepassword = fz_optarg; break;
 		case 's': list = 0; sign = 1; certificatefile = fz_optarg; break;
 		case 'v': list = 0; verify = 1; break;
-		default: usage(); break;
+		default: return usage();
 		}
 	}
 
 	if (argc - fz_optind < 1)
-		usage();
+		return usage();
 
 	infile = argv[fz_optind++];
 
@@ -250,9 +288,11 @@ int pdfsign_main(int argc, char **argv)
 
 		if (clear || sign)
 		{
+			pdf_write_options opts = pdf_default_write_options;
+			opts.do_incremental = 1;
 			if (!outfile)
 				outfile = "out.pdf";
-			pdf_save_document(ctx, doc, outfile, NULL);
+			pdf_save_document(ctx, doc, outfile, &opts);
 		}
 	}
 	fz_always(ctx)

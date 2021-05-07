@@ -57,7 +57,7 @@ typedef struct
 	unsigned int locked : 1;
 } pdf_ocg_ui;
 
-struct pdf_ocg_descriptor_s
+struct pdf_ocg_descriptor
 {
 	int current;
 	int num_configs;
@@ -72,12 +72,6 @@ struct pdf_ocg_descriptor_s
 	pdf_ocg_ui *ui;
 };
 
-/*
-	Get the number of layer
-	configurations defined in this document.
-
-	doc: The document in question.
-*/
 int
 pdf_count_layer_configs(fz_context *ctx, pdf_document *doc)
 {
@@ -110,10 +104,27 @@ count_entries(fz_context *ctx, pdf_obj *obj)
 }
 
 static pdf_ocg_ui *
-populate_ui(fz_context *ctx, pdf_ocg_descriptor *desc, pdf_ocg_ui *ui, pdf_obj *order, int depth, pdf_obj *rbgroups, pdf_obj *locked)
+get_ocg_ui(fz_context *ctx, pdf_ocg_descriptor *desc, int fill)
+{
+	if (fill == desc->num_ui_entries)
+	{
+		/* Number of layers changed while parsing;
+		 * probably due to a repair. */
+		int newsize = desc->num_ui_entries * 2;
+		if (newsize == 0)
+			newsize = 4; /* Arbitrary non-zero */
+		desc->ui = fz_realloc_array(ctx, desc->ui, newsize, pdf_ocg_ui);
+		desc->num_ui_entries = newsize;
+	}
+	return &desc->ui[fill];
+}
+
+static int
+populate_ui(fz_context *ctx, pdf_ocg_descriptor *desc, int fill, pdf_obj *order, int depth, pdf_obj *rbgroups, pdf_obj *locked)
 {
 	int len = pdf_array_len(ctx, order);
 	int i, j;
+	pdf_ocg_ui *ui;
 
 	for (i = 0; i < len; i++)
 	{
@@ -124,7 +135,7 @@ populate_ui(fz_context *ctx, pdf_ocg_descriptor *desc, pdf_ocg_ui *ui, pdf_obj *
 				continue;
 
 			fz_try(ctx)
-				ui = populate_ui(ctx, desc, ui, o, depth+1, rbgroups, locked);
+				fill = populate_ui(ctx, desc, fill, o, depth+1, rbgroups, locked);
 			fz_always(ctx)
 				pdf_unmark_obj(ctx, o);
 			fz_catch(ctx)
@@ -132,14 +143,14 @@ populate_ui(fz_context *ctx, pdf_ocg_descriptor *desc, pdf_ocg_ui *ui, pdf_obj *
 
 			continue;
 		}
-		ui->depth = depth;
 		if (pdf_is_string(ctx, o))
 		{
+			ui = get_ocg_ui(ctx, desc, fill++);
+			ui->depth = depth;
 			ui->ocg = -1;
 			ui->name = pdf_to_str_buf(ctx, o);
 			ui->button_flags = PDF_LAYER_UI_LABEL;
 			ui->locked = 1;
-			ui++;
 			continue;
 		}
 
@@ -150,13 +161,14 @@ populate_ui(fz_context *ctx, pdf_ocg_descriptor *desc, pdf_ocg_ui *ui, pdf_obj *
 		}
 		if (j == desc->len)
 			continue; /* OCG not found in main list! Just ignore it */
+		ui = get_ocg_ui(ctx, desc, fill++);
+		ui->depth = depth;
 		ui->ocg = j;
 		ui->name = pdf_dict_get_string(ctx, o, PDF_NAME(Name), NULL);
 		ui->button_flags = pdf_array_contains(ctx, o, rbgroups) ? PDF_LAYER_UI_RADIOBOX : PDF_LAYER_UI_CHECKBOX;
 		ui->locked = pdf_array_contains(ctx, o, locked);
-		ui++;
 	}
-	return ui;
+	return fill;
 }
 
 static void
@@ -191,10 +203,10 @@ load_ui(fz_context *ctx, pdf_ocg_descriptor *desc, pdf_obj *ocprops, pdf_obj *oc
 	if (desc->num_ui_entries == 0)
 		return;
 
-	desc->ui = Memento_label(fz_calloc(ctx, count, sizeof(pdf_ocg_ui)), "pdf_ocg_ui");
+	desc->ui = fz_malloc_struct_array(ctx, count, pdf_ocg_ui);
 	fz_try(ctx)
 	{
-		(void)populate_ui(ctx, desc, desc->ui, order, 0, rbgroups, locked);
+		desc->num_ui_entries = populate_ui(ctx, desc, 0, order, 0, rbgroups, locked);
 	}
 	fz_catch(ctx)
 	{
@@ -203,16 +215,6 @@ load_ui(fz_context *ctx, pdf_ocg_descriptor *desc, pdf_obj *ocprops, pdf_obj *oc
 	}
 }
 
-/*
-	Set the current configuration.
-	This updates the visibility of the optional content groups
-	within the document.
-
-	doc: The document in question.
-
-	config_num: A value in the 0..n-1 range, where n is the
-	value returned from pdf_count_layer_configs.
-*/
 void
 pdf_select_layer_config(fz_context *ctx, pdf_document *doc, int config)
 {
@@ -300,19 +302,6 @@ pdf_select_layer_config(fz_context *ctx, pdf_document *doc, int config)
 	load_ui(ctx, desc, obj, cobj);
 }
 
-/*
-	Fetch the name (and
-	optionally creator) of the given layer config.
-
-	doc: The document in question.
-
-	config_num: A value in the 0..n-1 range, where n is the
-	value returned from pdf_count_layer_configs.
-
-	info: Pointer to structure to fill in. Pointers within
-	this structure may be set to NULL if no information is
-	available.
-*/
 void
 pdf_layer_config_info(fz_context *ctx, pdf_document *doc, int config_num, pdf_layer_config *info)
 {
@@ -398,12 +387,6 @@ clear_radio_group(fz_context *ctx, pdf_document *doc, pdf_obj *ocg)
 	}
 }
 
-/*
-	Returns the number of entries in the
-	'UI' for this layer configuration.
-
-	doc: The document in question.
-*/
 int pdf_count_layer_config_ui(fz_context *ctx, pdf_document *doc)
 {
 	if (doc == NULL || doc->ocg == NULL)
@@ -412,18 +395,6 @@ int pdf_count_layer_config_ui(fz_context *ctx, pdf_document *doc)
 	return doc->ocg->num_ui_entries;
 }
 
-/*
-	Select a checkbox/radiobox
-	within the 'UI' for this layer configuration.
-
-	Selecting a UI entry that is a radiobox may disable
-	other UI entries.
-
-	doc: The document in question.
-
-	ui: A value in the 0..m-1 range, where m is the value
-	returned by pdf_count_layer_config_ui.
-*/
 void pdf_select_layer_config_ui(fz_context *ctx, pdf_document *doc, int ui)
 {
 	pdf_ocg_ui *entry;
@@ -447,18 +418,6 @@ void pdf_select_layer_config_ui(fz_context *ctx, pdf_document *doc, int ui)
 	doc->ocg->ocgs[entry->ocg].state = 1;
 }
 
-/*
-	Toggle a checkbox/radiobox
-	within the 'UI' for this layer configuration.
-
-	Toggling a UI entry that is a radiobox may disable
-	other UI entries.
-
-	doc: The document in question.
-
-	ui: A value in the 0..m-1 range, where m is the value
-	returned by pdf_count_layer_config_ui.
-*/
 void pdf_toggle_layer_config_ui(fz_context *ctx, pdf_document *doc, int ui)
 {
 	pdf_ocg_ui *entry;
@@ -485,15 +444,6 @@ void pdf_toggle_layer_config_ui(fz_context *ctx, pdf_document *doc, int ui)
 	doc->ocg->ocgs[entry->ocg].state = !selected;
 }
 
-/*
-	Select a checkbox/radiobox
-	within the 'UI' for this layer configuration.
-
-	doc: The document in question.
-
-	ui: A value in the 0..m-1 range, where m is the value
-	returned by pdf_count_layer_config_ui.
-*/
 void pdf_deselect_layer_config_ui(fz_context *ctx, pdf_document *doc, int ui)
 {
 	pdf_ocg_ui *entry;
@@ -514,18 +464,6 @@ void pdf_deselect_layer_config_ui(fz_context *ctx, pdf_document *doc, int ui)
 	doc->ocg->ocgs[entry->ocg].state = 0;
 }
 
-/*
-	Get the info for a given
-	entry in the layer config ui.
-
-	doc: The document in question.
-
-	ui: A value in the 0..m-1 range, where m is the value
-	returned by pdf_count_layer_config_ui.
-
-	info: Pointer to a structure to fill in with information
-	about the requested ui entry.
-*/
 void
 pdf_layer_config_ui_info(fz_context *ctx, pdf_document *doc, int ui, pdf_layer_config_ui *info)
 {
@@ -631,7 +569,8 @@ pdf_is_hidden_ocg(fz_context *ctx, pdf_ocg_descriptor *desc, pdf_obj *rdb, const
 		/* by default an OCG is visible, unless it's explicitly hidden */
 		for (i = 0; i < len; i++)
 		{
-			if (!pdf_objcmp_resolve(ctx, desc->ocgs[i].obj, ocg))
+			/* Deliberately do NOT resolve here. Bug 702261. */
+			if (!pdf_objcmp(ctx, desc->ocgs[i].obj, ocg))
 			{
 				default_value = !desc->ocgs[i].state;
 				break;
@@ -821,10 +760,6 @@ pdf_read_ocg(fz_context *ctx, pdf_document *doc)
 	pdf_select_layer_config(ctx, doc, 0);
 }
 
-/*
-	Write the current layer
-	config back into the document as the default state.
-*/
 void
 pdf_set_layer_config_as_default(fz_context *ctx, pdf_document *doc)
 {

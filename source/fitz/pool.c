@@ -3,23 +3,22 @@
 #include <string.h>
 #include <stdio.h>
 
-typedef struct fz_pool_node_s fz_pool_node;
+typedef struct fz_pool_node
+{
+	struct fz_pool_node *next;
+	char mem[1];
+} fz_pool_node;
 
 #define POOL_SIZE (4<<10) /* default size of pool blocks */
 #define POOL_SELF (1<<10) /* size where allocs are put into their own blocks */
 
-struct fz_pool_s
+struct fz_pool
 {
 	size_t size;
 	fz_pool_node *head, *tail;
 	char *pos, *end;
 };
 
-struct fz_pool_node_s
-{
-	fz_pool_node *next;
-	char mem[1];
-};
 
 fz_pool *fz_new_pool(fz_context *ctx)
 {
@@ -64,7 +63,7 @@ void *fz_pool_alloc(fz_context *ctx, fz_pool *pool, size_t size)
 		return fz_pool_alloc_oversize(ctx, pool, size);
 
 	/* round size to pointer alignment (we don't expect to use doubles) */
-	size = ((size + sizeof(void*) - 1) / sizeof(void*)) * sizeof(void*);
+	size = (size + FZ_POINTER_ALIGN_MOD - 1) & ~(FZ_POINTER_ALIGN_MOD-1);
 
 	if (pool->pos + size > pool->end)
 	{

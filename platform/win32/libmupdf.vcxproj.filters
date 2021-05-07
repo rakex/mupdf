@@ -240,6 +240,9 @@
     <ClCompile Include="..\..\source\fitz\glyph.c">
       <Filter>fitz</Filter>
     </ClCompile>
+    <ClCompile Include="..\..\source\fitz\glyphbox.c">
+      <Filter>fitz</Filter>
+    </ClCompile>
     <ClCompile Include="..\..\source\fitz\halftone.c">
       <Filter>fitz</Filter>
     </ClCompile>
@@ -343,6 +346,9 @@
       <Filter>fitz</Filter>
     </ClCompile>
     <ClCompile Include="..\..\source\fitz\random.c">
+      <Filter>fitz</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\source\fitz\xmltext-device.c">
       <Filter>fitz</Filter>
     </ClCompile>
     <ClCompile Include="..\..\source\fitz\separation.c">
@@ -579,18 +585,30 @@
     <ClCompile Include="..\..\source\html\html-parse.c">
       <Filter>html</Filter>
     </ClCompile>
+    <ClCompile Include="..\..\source\fitz\encode-fax.c">
+      <Filter>fitz</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\source\fitz\log.c">
+      <Filter>fitz</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\source\fitz\output-pdfocr.c">
+      <Filter>fitz</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\source\fitz\ocr-device.c">
+      <Filter>fitz</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\source\fitz\warp.c">
+      <Filter>fitz</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\source\fitz\output-docx.c">
+      <Filter>fitz</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\source\pdf\pdf-layout.c">
+      <Filter>pdf</Filter>
+    </ClCompile>
   </ItemGroup>
   <ItemGroup>
-    <ClInclude Include="..\..\source\fitz\colorspace-imp.h">
-      <Filter>fitz</Filter>
-    </ClInclude>
     <ClInclude Include="..\..\source\fitz\draw-imp.h">
-      <Filter>fitz</Filter>
-    </ClInclude>
-    <ClInclude Include="..\..\source\fitz\fitz-imp.h">
-      <Filter>fitz</Filter>
-    </ClInclude>
-    <ClInclude Include="..\..\source\fitz\glyph-cache-imp.h">
       <Filter>fitz</Filter>
     </ClInclude>
     <ClInclude Include="..\..\source\fitz\html-tags.h">
@@ -605,12 +623,6 @@
     <ClInclude Include="..\..\source\fitz\unicodedata_db.h">
       <Filter>fitz</Filter>
     </ClInclude>
-    <ClInclude Include="..\..\source\pdf\pdf-glyphlist.h">
-      <Filter>pdf</Filter>
-    </ClInclude>
-    <ClInclude Include="..\..\source\pdf\pdf-interpret-imp.h">
-      <Filter>pdf</Filter>
-    </ClInclude>
     <ClInclude Include="..\..\include\mupdf\fitz.h">
       <Filter>!include</Filter>
     </ClInclude>
@@ -623,13 +635,7 @@
     <ClInclude Include="..\..\include\mupdf\ucdn.h">
       <Filter>!include</Filter>
     </ClInclude>
-    <ClInclude Include="..\..\include\mupdf\xps.h">
-      <Filter>!include</Filter>
-    </ClInclude>
     <ClInclude Include="..\..\include\mupdf\pdf\annot.h">
-      <Filter>!include\pdf</Filter>
-    </ClInclude>
-    <ClInclude Include="..\..\include\mupdf\pdf\appearance.h">
       <Filter>!include\pdf</Filter>
     </ClInclude>
     <ClInclude Include="..\..\include\mupdf\pdf\clean.h">
@@ -683,9 +689,6 @@
     <ClInclude Include="..\..\include\mupdf\pdf\xref.h">
       <Filter>!include\pdf</Filter>
     </ClInclude>
-    <ClInclude Include="..\..\include\mupdf\fitz\annotation.h">
-      <Filter>!include\fitz</Filter>
-    </ClInclude>
     <ClInclude Include="..\..\include\mupdf\fitz\archive.h">
       <Filter>!include\fitz</Filter>
     </ClInclude>
@@ -734,9 +737,6 @@
     <ClInclude Include="..\..\include\mupdf\fitz\font.h">
       <Filter>!include\fitz</Filter>
     </ClInclude>
-    <ClInclude Include="..\..\include\mupdf\fitz\function.h">
-      <Filter>!include\fitz</Filter>
-    </ClInclude>
     <ClInclude Include="..\..\include\mupdf\fitz\geometry.h">
       <Filter>!include\fitz</Filter>
     </ClInclude>
@@ -752,9 +752,6 @@
     <ClInclude Include="..\..\include\mupdf\fitz\hash.h">
       <Filter>!include\fitz</Filter>
     </ClInclude>
-    <ClInclude Include="..\..\include\mupdf\fitz\image-list.h">
-      <Filter>!include\fitz</Filter>
-    </ClInclude>
     <ClInclude Include="..\..\include\mupdf\fitz\image.h">
       <Filter>!include\fitz</Filter>
     </ClInclude>
@@ -762,30 +759,6 @@
       <Filter>!include\fitz</Filter>
     </ClInclude>
     <ClInclude Include="..\..\include\mupdf\fitz\outline.h">
-      <Filter>!include\fitz</Filter>
-    </ClInclude>
-    <ClInclude Include="..\..\include\mupdf\fitz\output-pcl.h">
-      <Filter>!include\fitz</Filter>
-    </ClInclude>
-    <ClInclude Include="..\..\include\mupdf\fitz\output-pclm.h">
-      <Filter>!include\fitz</Filter>
-    </ClInclude>
-    <ClInclude Include="..\..\include\mupdf\fitz\output-png.h">
-      <Filter>!include\fitz</Filter>
-    </ClInclude>
-    <ClInclude Include="..\..\include\mupdf\fitz\output-pnm.h">
-      <Filter>!include\fitz</Filter>
-    </ClInclude>
-    <ClInclude Include="..\..\include\mupdf\fitz\output-ps.h">
-      <Filter>!include\fitz</Filter>
-    </ClInclude>
-    <ClInclude Include="..\..\include\mupdf\fitz\output-ps2.h">
-      <Filter>!include\fitz</Filter>
-    </ClInclude>
-    <ClInclude Include="..\..\include\mupdf\fitz\output-psd.h">
-      <Filter>!include\fitz</Filter>
-    </ClInclude>
-    <ClInclude Include="..\..\include\mupdf\fitz\output-pwg.h">
       <Filter>!include\fitz</Filter>
     </ClInclude>
     <ClInclude Include="..\..\include\mupdf\fitz\output-svg.h">
@@ -824,9 +797,6 @@
     <ClInclude Include="..\..\include\mupdf\fitz\system.h">
       <Filter>!include\fitz</Filter>
     </ClInclude>
-    <ClInclude Include="..\..\include\mupdf\fitz\text-shaper.h">
-      <Filter>!include\fitz</Filter>
-    </ClInclude>
     <ClInclude Include="..\..\include\mupdf\fitz\text.h">
       <Filter>!include\fitz</Filter>
     </ClInclude>
@@ -837,9 +807,6 @@
       <Filter>!include\fitz</Filter>
     </ClInclude>
     <ClInclude Include="..\..\include\mupdf\fitz\tree.h">
-      <Filter>!include\fitz</Filter>
-    </ClInclude>
-    <ClInclude Include="..\..\include\mupdf\fitz\ucdn.h">
       <Filter>!include\fitz</Filter>
     </ClInclude>
     <ClInclude Include="..\..\include\mupdf\fitz\util.h">
@@ -856,6 +823,33 @@
     </ClInclude>
     <ClInclude Include="..\..\include\mupdf\fitz\xml.h">
       <Filter>!include\fitz</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\include\mupdf\fitz\log.h">
+      <Filter>!include\fitz</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\source\fitz\context-imp.h">
+      <Filter>fitz</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\source\fitz\bidi-imp.h">
+      <Filter>fitz</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\source\fitz\color-imp.h">
+      <Filter>fitz</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\source\fitz\z-imp.h">
+      <Filter>fitz</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\source\fitz\glyph-imp.h">
+      <Filter>fitz</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\source\fitz\glyphbox.h">
+      <Filter>fitz</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\source\fitz\image-imp.h">
+      <Filter>fitz</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\source\fitz\pixmap-imp.h">
+      <Filter>fitz</Filter>
     </ClInclude>
   </ItemGroup>
 </Project>

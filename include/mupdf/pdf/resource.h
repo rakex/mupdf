@@ -17,13 +17,22 @@ void pdf_empty_store(fz_context *ctx, pdf_document *doc);
 enum { PDF_SIMPLE_FONT_RESOURCE=1, PDF_CID_FONT_RESOURCE=2, PDF_CJK_FONT_RESOURCE=3 };
 enum { PDF_SIMPLE_ENCODING_LATIN, PDF_SIMPLE_ENCODING_GREEK, PDF_SIMPLE_ENCODING_CYRILLIC };
 
-pdf_obj *pdf_find_font_resource(fz_context *ctx, pdf_document *doc, int type, int encoding, fz_font *item, unsigned char md5[16]);
-pdf_obj *pdf_insert_font_resource(fz_context *ctx, pdf_document *doc, unsigned char md5[16], pdf_obj *obj);
-pdf_obj *pdf_find_image_resource(fz_context *ctx, pdf_document *doc, fz_image *item, unsigned char md5[16]);
-pdf_obj *pdf_insert_image_resource(fz_context *ctx, pdf_document *doc, unsigned char md5[16], pdf_obj *obj);
-void pdf_drop_resource_tables(fz_context *ctx, pdf_document *doc);
+/* The contents of this structure are defined publically just so we can
+ * define this on the stack. */
+typedef struct
+{
+	unsigned char digest[16];
+	int type;
+	int encoding;
+	int local_xref;
+} pdf_font_resource_key;
 
-typedef struct pdf_function_s pdf_function;
+pdf_obj *pdf_find_font_resource(fz_context *ctx, pdf_document *doc, int type, int encoding, fz_font *item, pdf_font_resource_key *key);
+pdf_obj *pdf_insert_font_resource(fz_context *ctx, pdf_document *doc, pdf_font_resource_key *key, pdf_obj *obj);
+void pdf_drop_resource_tables(fz_context *ctx, pdf_document *doc);
+void pdf_purge_local_font_resources(fz_context *ctx, pdf_document *doc);
+
+typedef struct pdf_function pdf_function;
 
 void pdf_eval_function(fz_context *ctx, pdf_function *func, const float *in, int inlen, float *out, int outlen);
 pdf_function *pdf_keep_function(fz_context *ctx, pdf_function *func);
@@ -44,9 +53,7 @@ fz_image *pdf_load_image(fz_context *ctx, pdf_document *doc, pdf_obj *obj);
 
 pdf_obj *pdf_add_image(fz_context *ctx, pdf_document *doc, fz_image *image);
 
-typedef struct pdf_pattern_s pdf_pattern;
-
-struct pdf_pattern_s
+typedef struct
 {
 	fz_storable storable;
 	int ismask;
@@ -58,7 +65,7 @@ struct pdf_pattern_s
 	pdf_obj *resources;
 	pdf_obj *contents;
 	int id; /* unique ID for caching rendered tiles */
-};
+} pdf_pattern;
 
 pdf_pattern *pdf_load_pattern(fz_context *ctx, pdf_document *doc, pdf_obj *obj);
 pdf_pattern *pdf_keep_pattern(fz_context *ctx, pdf_pattern *pat);

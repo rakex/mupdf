@@ -1,4 +1,4 @@
-#include "fitz-imp.h"
+#include "mupdf/fitz.h"
 
 /* This code needs to be kept out of stm_buffer.c to avoid it being
  * pulled into cmapdump.c */
@@ -69,7 +69,7 @@ fz_open_image_decomp_stream(fz_context *ctx, fz_stream *tail, fz_compression_par
 			break;
 
 		case FZ_IMAGE_JBIG2:
-			head = fz_open_jbig2d(ctx, tail, params->u.jbig2.globals);
+			head = fz_open_jbig2d(ctx, tail, params->u.jbig2.globals, params->u.jbig2.embedded);
 			break;
 
 		case FZ_IMAGE_RLD:
@@ -120,7 +120,9 @@ fz_open_compressed_buffer(fz_context *ctx, fz_compressed_buffer *buffer)
 size_t
 fz_compressed_buffer_size(fz_compressed_buffer *buffer)
 {
-	if (buffer && buffer->buffer)
-		return (size_t)buffer->buffer->cap;
-	return 0;
+	if (!buffer)
+		return 0;
+	if (buffer->buffer)
+		return (size_t)buffer->buffer->cap + sizeof(*buffer);
+	return sizeof(*buffer);
 }

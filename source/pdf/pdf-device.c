@@ -7,11 +7,9 @@
 
 #define ALLOWED_TEXT_POS_ERROR (0.001f)
 
-typedef struct pdf_device_s pdf_device;
+typedef struct pdf_device pdf_device;
 
-typedef struct gstate_s gstate;
-
-struct gstate_s
+typedef struct
 {
 	/* The first few entries aren't really graphics state things, but
 	 * they are recorded here as they are fundamentally intertwined with
@@ -30,7 +28,7 @@ struct gstate_s
 	float font_size;
 	int text_rendering_mode;
 	int knockout;
-};
+} gstate;
 
 /* The image digest information, object reference, as well as indirect reference
  * ID are all stored in doc->resources->image, and so they are maintained
@@ -42,26 +40,22 @@ struct gstate_s
  * already specified for this page which is the purpose of image_indices
  */
 
-typedef struct alpha_entry_s alpha_entry;
-
-struct alpha_entry_s
+typedef struct
 {
 	float alpha;
 	int stroke;
-};
+} alpha_entry;
 
-typedef struct group_entry_s group_entry;
-
-struct group_entry_s
+typedef struct
 {
 	int alpha;
 	int isolated;
 	int knockout;
 	fz_colorspace *colorspace;
 	pdf_obj *ref;
-};
+} group_entry;
 
-struct pdf_device_s
+struct pdf_device
 {
 	fz_device super;
 
@@ -130,7 +124,9 @@ pdf_dev_stroke_state(fz_context *ctx, pdf_device *pdev, const fz_stroke_state *s
 		fz_append_printf(ctx, gs->buf, "%g M\n", stroke_state->miterlimit);
 	}
 	if (gs->stroke_state == NULL && stroke_state->dash_len == 0)
-	{}
+	{
+		/* No stroke details. */
+	}
 	else if (!gs->stroke_state || gs->stroke_state->dash_phase != stroke_state->dash_phase || gs->stroke_state->dash_len != stroke_state->dash_len ||
 		memcmp(gs->stroke_state->dash_list, stroke_state->dash_list, sizeof(float)*stroke_state->dash_len))
 	{
@@ -286,6 +282,8 @@ pdf_dev_alpha(fz_context *ctx, pdf_device *pdev, float alpha, int stroke)
 	/* If the alpha is unchanged, nothing to do */
 	if (gs->alpha[stroke] == alpha)
 		return;
+
+	gs->alpha[stroke] = alpha;
 
 	/* Have we sent such an alpha before? */
 	for (i = 0; i < pdev->num_alphas; i++)
@@ -1116,15 +1114,6 @@ pdf_dev_drop_device(fz_context *ctx, fz_device *dev)
 	fz_free(ctx, pdev->gstates);
 }
 
-/*
-	Create a pdf device. Rendering to the device creates
-	new pdf content. WARNING: this device is work in progress. It doesn't
-	currently support all rendering cases.
-
-	Note that contents must be a stream (dictionary) to be updated (or
-	a reference to a stream). Callers should take care to ensure that it
-	is not an array, and that is it not shared with other objects/pages.
-*/
 fz_device *pdf_new_pdf_device(fz_context *ctx, pdf_document *doc, fz_matrix topctm, fz_rect mediabox, pdf_obj *resources, fz_buffer *buf)
 {
 	pdf_device *dev = fz_new_derived_device(ctx, pdf_device);
@@ -1194,23 +1183,6 @@ fz_device *pdf_new_pdf_device(fz_context *ctx, pdf_document *doc, fz_matrix topc
 	return (fz_device*)dev;
 }
 
-/*
-	Create a device that will record the
-	graphical operations given to it into a sequence of
-	pdf operations, together with a set of resources. This
-	sequence/set pair can then be used as the basis for
-	adding a page to the document (see pdf_add_page).
-
-	doc: The document for which these are intended.
-
-	mediabox: The bbox for the created page.
-
-	presources: Pointer to a place to put the created
-	resources dictionary.
-
-	pcontents: Pointer to a place to put the created
-	contents buffer.
-*/
 fz_device *pdf_page_write(fz_context *ctx, pdf_document *doc, fz_rect mediabox, pdf_obj **presources, fz_buffer **pcontents)
 {
 	fz_matrix pagectm = { 1, 0, 0, -1, -mediabox.x0, mediabox.y1 };
